@@ -1,0 +1,21 @@
+{
+  "buildCommand": "vite build",
+  "outputDirectory": "dist/client",
+  "framework": null,
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/assets/(.*)",
+      "destination": "/assets/$1"
+    },
+    {
+      "source": "/((?!assets/).*)",
+      "destination": "/api/server"
+    }
+  ],
+  "functions": {
+    "api/server.js": {
+      "includeFiles": "dist/**"
+    }
+  }
+}
