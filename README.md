@@ -123,9 +123,9 @@ export const defaultNetwork = {
 
 🔗 Links
 
-· Explorer: jay-explorer.onenov.xyz
-· OneNov: onenov.xyz
-· Jay Network: thejaynetwork.com
+· Explorer: https://jay-explorer.onenov.xyz
+· OneNov: https://onenov.xyz
+· Jay Network: https://thejaynetwork.com
 
 ---
 
