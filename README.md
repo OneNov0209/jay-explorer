@@ -140,5 +140,3 @@ OneNov — Cosmos ecosystem validator and infrastructure provider.
 📄 License
 
 MIT
-
-```
