@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { lcd, safe } from "@/lib/cosmos";
 import { defaultNetwork } from "@/data/networks";
@@ -115,6 +115,16 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
 
   const totalBonded = Number(pool?.pool?.bonded_tokens ?? 0);
 
+  // Fetch delegations per validator untuk 24h changes
+  const valDelegations = useQueries({
+    queries: list.slice(0, 100).map((v: any) => ({
+      queryKey: ["val-delegations-24h", v.operator_address],
+      queryFn: () => safe(lcd.validatorDelegations(v.operator_address)),
+      staleTime: 5 * 60_000,
+      enabled: !l1 && list.length > 0,
+    })),
+  });
+
   return (
     <div className="space-y-6">
       <div>
@@ -163,7 +173,7 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
                 <th className="text-left px-5 py-3 font-medium">#</th>
                 <th className="text-left px-5 py-3 font-medium">Moniker</th>
                 <th className="text-right px-5 py-3 font-medium">Voting Power</th>
-                <th className="text-right px-5 py-3 font-medium">Share</th>
+                <th className="text-right px-5 py-3 font-medium">24h Changes</th>
                 <th className="text-right px-5 py-3 font-medium">Commission</th>
                 <th className="text-right px-5 py-3 font-medium">Uptime</th>
                 <th className="text-right px-5 py-3 font-medium">Status</th>
@@ -180,7 +190,6 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
                   ))
                 : list.map((v: any, i: number) => {
                     const tokens = Number(v.tokens);
-                    const share = totalBonded ? tokens / totalBonded : 0;
                     const status = v.jailed
                       ? "jailed"
                       : v.status === "BOND_STATUS_BONDED"
@@ -193,6 +202,12 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
                       status === "active" && signedWindow > 0
                         ? Math.max(0, 1 - missed / signedWindow)
                         : null;
+                    const idx = list.indexOf(v);
+                    const dels = valDelegations[idx]?.data?.delegation_responses ?? [];
+                    const totalDelegated = dels.reduce(
+                      (s: number, d: any) => s + Number(d.balance?.amount ?? 0),
+                      0,
+                    );
                     return (
                       <tr
                         key={v.operator_address}
@@ -224,7 +239,15 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
                         <td className="px-5 py-3 text-right font-mono text-xs">
                           {formatAmount(tokens, { precision: 0 })}
                         </td>
-                        <td className="px-5 py-3 text-right text-xs">{pct(share)}</td>
+                        <td className="px-5 py-3 text-right text-xs">
+                          {totalDelegated > 0 ? (
+                            <span className="text-success font-mono">
+                              +{formatAmount(totalDelegated, { precision: 0 })} JAY
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
                         <td className="px-5 py-3 text-right text-xs">
                           {pct(Number(v.commission?.commission_rates?.rate ?? 0))}
                         </td>
@@ -322,4 +345,3 @@ export function consAddrFromPubkey(pubkey: any): string | null {
     return null;
   }
 }
-
