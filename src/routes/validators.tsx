@@ -1,11 +1,11 @@
 import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { useQuery, useQueries } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState, useEffect } from "react";
 import { lcd, safe } from "@/lib/cosmos";
 import { defaultNetwork } from "@/data/networks";
 import { Card, Badge, Skeleton } from "@/components/shared/ui";
 import { formatAmount, pct, shorten } from "@/lib/format";
-import { Search, Shield } from "lucide-react";
+import { Search, Shield, TrendingUp, TrendingDown } from "lucide-react";
 import { useKeybaseAvatar } from "@/hooks/use-keybase";
 import { fromBase64, toBech32 } from "@cosmjs/encoding";
 import { Sha256 } from "@cosmjs/crypto";
@@ -22,6 +22,11 @@ export const Route = createFileRoute("/validators")({
 
 export type Filter = "active" | "inactive" | "jailed" | "uptime" | "all";
 
+interface ValidatorHistory {
+  tokens: string;
+  date: string;
+}
+
 function ValidatorsRouteComponent() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   return path === "/validators" ? <ValidatorsPage /> : <Outlet />;
@@ -30,6 +35,7 @@ function ValidatorsRouteComponent() {
 export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: Filter } = {}) {
   const [filter, setFilter] = useState<Filter>(initialFilter);
   const [q, setQ] = useState("");
+  const [changes, setChanges] = useState<Map<string, number>>(new Map());
 
   const { data: bonded, isLoading: l1 } = useQuery({
     queryKey: ["vals-bonded"],
@@ -61,7 +67,6 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
 
   const signedWindow = Number(slashingParams?.params?.signed_blocks_window ?? 10000);
 
-  // Build a lookup: valcons -> { missed, tombstoned }
   const signMap = useMemo(() => {
     const m = new Map<string, { missed: number; jailedUntil?: string }>();
     for (const s of signing?.info ?? []) {
@@ -91,7 +96,6 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
     let sorted = [...all].sort((a: any, b: any) => Number(b.tokens) - Number(a.tokens));
 
     if (filter === "uptime") {
-      // Recompute by uptime score (lower missed = better)
       sorted = sorted
         .map((v: any) => {
           const valcons = consAddrFromPubkey(v.consensus_pubkey);
@@ -115,15 +119,42 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
 
   const totalBonded = Number(pool?.pool?.bonded_tokens ?? 0);
 
-  // Fetch delegations per validator untuk 24h changes
-  const valDelegations = useQueries({
-    queries: list.slice(0, 100).map((v: any) => ({
-      queryKey: ["val-delegations-24h", v.operator_address],
-      queryFn: () => safe(lcd.validatorDelegations(v.operator_address)),
-      staleTime: 5 * 60_000,
-      enabled: !l1 && list.length > 0,
-    })),
-  });
+  // 24h changes logic
+  useEffect(() => {
+    if (typeof window === "undefined" || list.length === 0) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const STORAGE_KEY = "jay_validator_history";
+    const history: Record<string, ValidatorHistory[]> = JSON.parse(
+      localStorage.getItem(STORAGE_KEY) || "{}",
+    );
+
+    const newChanges = new Map<string, number>();
+
+    for (const v of list) {
+      const operatorAddr = v.operator_address;
+      const currentTokens = parseFloat(v.tokens || "0");
+
+      const validatorHistory = history[operatorAddr] || [];
+      const yesterdayData = validatorHistory.find((h) => h.date !== today);
+
+      if (yesterdayData) {
+        const change = currentTokens - parseFloat(yesterdayData.tokens);
+        newChanges.set(operatorAddr, change);
+      } else {
+        newChanges.set(operatorAddr, 0);
+      }
+
+      // Simpan data hari ini (maks 2 entry: hari ini + kemarin)
+      history[operatorAddr] = [
+        { tokens: v.tokens, date: today },
+        ...validatorHistory.filter((h) => h.date === today).slice(0, 0),
+      ].slice(0, 2);
+    }
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+    setChanges(newChanges);
+  }, [list]);
 
   return (
     <div className="space-y-6">
@@ -202,12 +233,7 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
                       status === "active" && signedWindow > 0
                         ? Math.max(0, 1 - missed / signedWindow)
                         : null;
-                    const idx = list.indexOf(v);
-                    const dels = valDelegations[idx]?.data?.delegation_responses ?? [];
-                    const totalDelegated = dels.reduce(
-                      (s: number, d: any) => s + Number(d.balance?.amount ?? 0),
-                      0,
-                    );
+                    const change = changes.get(v.operator_address) || 0;
                     return (
                       <tr
                         key={v.operator_address}
@@ -240,9 +266,19 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
                           {formatAmount(tokens, { precision: 0 })}
                         </td>
                         <td className="px-5 py-3 text-right text-xs">
-                          {totalDelegated > 0 ? (
-                            <span className="text-success font-mono">
-                              +{formatAmount(totalDelegated, { precision: 0 })} JAY
+                          {change !== 0 ? (
+                            <span
+                              className={`font-mono inline-flex items-center gap-1 ${
+                                change > 0 ? "text-emerald-500" : "text-red-500"
+                              }`}
+                            >
+                              {change > 0 ? (
+                                <TrendingUp className="h-3 w-3" />
+                              ) : (
+                                <TrendingDown className="h-3 w-3" />
+                              )}
+                              {change > 0 ? "+" : ""}
+                              {formatAmount(Math.abs(change), { precision: 0 })} JAY
                             </span>
                           ) : (
                             <span className="text-muted-foreground">—</span>
@@ -332,7 +368,6 @@ export function UptimePill({ uptime }: { uptime: number }) {
   );
 }
 
-/** Convert a CometBFT consensus pubkey to a valcons bech32. */
 export function consAddrFromPubkey(pubkey: any): string | null {
   try {
     if (!pubkey) return null;
