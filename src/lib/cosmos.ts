@@ -44,6 +44,8 @@ export const rpc = {
     ),
   abciInfo: () => firstOk(defaultNetwork.rpcs, "/abci_info"),
   consensusParams: () => firstOk(defaultNetwork.rpcs, "/consensus_params"),
+  consensusState: () => firstOk(defaultNetwork.rpcs, "/consensus_state"),
+  dumpConsensusState: () => firstOk(defaultNetwork.rpcs, "/dump_consensus_state"),
 };
 
 // ---------------- REST (Cosmos SDK LCD) ----------------
@@ -69,7 +71,7 @@ export const lcd = {
   stakingParams: () => firstOk(defaultNetwork.apis, "/cosmos/staking/v1beta1/params"),
   slashingParams: () => firstOk(defaultNetwork.apis, "/cosmos/slashing/v1beta1/params"),
   govParams: (paramsType: "voting" | "tallying" | "deposit") =>
-    firstOk(defaultNetwork.apis, `/cosmos/gov/v1beta1/params/${paramsType}`),
+    firstOk(defaultNetwork.apis, `/cosmos/gov/v1/params/${paramsType}`),
   distributionParams: () => firstOk(defaultNetwork.apis, "/cosmos/distribution/v1beta1/params"),
   mintParams: () => firstOk(defaultNetwork.apis, "/cosmos/mint/v1beta1/params"),
   inflation: () => firstOk(defaultNetwork.apis, "/cosmos/mint/v1beta1/inflation"),
@@ -84,14 +86,14 @@ export const lcd = {
   rewards: (addr: string) =>
     firstOk(defaultNetwork.apis, `/cosmos/distribution/v1beta1/delegators/${addr}/rewards`),
   proposals: () =>
-    firstOk(defaultNetwork.apis, "/cosmos/gov/v1beta1/proposals?pagination.limit=100&pagination.reverse=true"),
-  proposal: (id: string) => firstOk(defaultNetwork.apis, `/cosmos/gov/v1beta1/proposals/${id}`),
+    firstOk(defaultNetwork.apis, "/cosmos/gov/v1/proposals?pagination.limit=100&pagination.reverse=true"),
+  proposal: (id: string) => firstOk(defaultNetwork.apis, `/cosmos/gov/v1/proposals/${id}`),
   proposalTally: (id: string) =>
-    firstOk(defaultNetwork.apis, `/cosmos/gov/v1beta1/proposals/${id}/tally`),
+    firstOk(defaultNetwork.apis, `/cosmos/gov/v1/proposals/${id}/tally`),
   proposalVotes: (id: string, limit = 200) =>
-    firstOk(defaultNetwork.apis, `/cosmos/gov/v1beta1/proposals/${id}/votes?pagination.limit=${limit}&pagination.reverse=true`),
+    firstOk(defaultNetwork.apis, `/cosmos/gov/v1/proposals/${id}/votes?pagination.limit=${limit}&pagination.reverse=true`),
   proposalDeposits: (id: string) =>
-    firstOk(defaultNetwork.apis, `/cosmos/gov/v1beta1/proposals/${id}/deposits`),
+    firstOk(defaultNetwork.apis, `/cosmos/gov/v1/proposals/${id}/deposits`),
   signingInfos: () =>
     firstOk(defaultNetwork.apis, "/cosmos/slashing/v1beta1/signing_infos?pagination.limit=500"),
   signingInfo: (consAddr: string) =>
