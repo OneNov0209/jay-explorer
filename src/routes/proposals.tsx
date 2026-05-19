@@ -50,29 +50,29 @@ function ProposalsPage() {
       ) : (
         <div className="grid gap-4">
           {list
-            .sort((a, b) => Number(b.proposal_id) - Number(a.proposal_id))
+            .sort((a, b) => Number(b.id || b.proposal_id) - Number(a.id || a.proposal_id))
             .map((p: any) => (
               <Link
-                key={p.proposal_id}
+                key={p.id || p.proposal_id}
                 to="/proposals/$id"
-                params={{ id: String(p.proposal_id) }}
+                params={{ id: String(p.id || p.proposal_id) }}
               >
                 <Card className="p-5 hover:border-primary/40 transition">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-xs text-muted-foreground font-mono">
-                          #{p.proposal_id}
+                          #{p.id || p.proposal_id}
                         </span>
                         <Badge variant={STATUS_VARIANT[p.status] ?? "muted"}>
                           {statusLabel(p.status)}
                         </Badge>
                       </div>
                       <h3 className="font-semibold truncate">
-                        {p.content?.title ?? "Untitled proposal"}
+                        {p.title ?? "Untitled proposal"}
                       </h3>
                       <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                        {p.content?.description}
+                        {p.summary}
                       </p>
                     </div>
                     <div className="text-right text-xs text-muted-foreground hidden sm:block">
