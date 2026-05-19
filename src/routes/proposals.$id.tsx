@@ -69,10 +69,10 @@ function ProposalDetail() {
     return <Card className="p-8 text-center text-muted-foreground">Proposal not found.</Card>;
 
   const t = (tally as any)?.tally ?? p.final_tally_result ?? {};
-  const yes = Number(t.yes ?? 0);
-  const no = Number(t.no ?? 0);
-  const abstain = Number(t.abstain ?? 0);
-  const veto = Number(t.no_with_veto ?? 0);
+  const yes = Number(t.yes_count ?? t.yes ?? 0);
+  const no = Number(t.no_count ?? t.no ?? 0);
+  const abstain = Number(t.abstain_count ?? t.abstain ?? 0);
+  const veto = Number(t.no_with_veto_count ?? t.no_with_veto ?? 0);
   const total = yes + no + abstain + veto;
 
   const inVoting = p.status === "PROPOSAL_STATUS_VOTING_PERIOD";
@@ -118,14 +118,14 @@ function ProposalDetail() {
       <VoteDialog
         open={voteOpen}
         onOpenChange={setVoteOpen}
-        proposalId={String(p.proposal_id)}
-        proposalTitle={p.content?.title}
+        proposalId={String(p.id || p.proposal_id)}
+        proposalTitle={p.title}
       />
       <DepositDialog
         open={depositOpen}
         onOpenChange={setDepositOpen}
-        proposalId={String(p.proposal_id)}
-        proposalTitle={p.content?.title}
+        proposalId={String(p.id || p.proposal_id)}
+        proposalTitle={p.title}
         minDepositUjay={minDepositUjay}
         currentDepositUjay={String(currentDeposit)}
       />
@@ -133,8 +133,8 @@ function ProposalDetail() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="min-w-0 flex-1">
-            <div className="text-xs text-muted-foreground font-mono">#{p.proposal_id}</div>
-            <h1 className="text-2xl font-bold mt-1">{p.content?.title}</h1>
+            <div className="text-xs text-muted-foreground font-mono">#{p.id || p.proposal_id}</div>
+            <h1 className="text-2xl font-bold mt-1">{p.title}</h1>
             <Badge className="mt-2" variant={inVoting ? "default" : inDeposit ? "warning" : "muted"}>
               {p.status?.replace("PROPOSAL_STATUS_", "").replace(/_/g, " ").toLowerCase()}
             </Badge>
@@ -159,8 +159,25 @@ function ProposalDetail() {
           </div>
         </div>
         <p className="text-sm text-muted-foreground mt-4 whitespace-pre-line">
-          {p.content?.description}
+          {p.summary}
         </p>
+
+        {/* Messages */}
+        {p.messages && p.messages.length > 0 && (
+          <div className="mt-6 space-y-3">
+            <h3 className="font-semibold text-sm">Messages</h3>
+            {p.messages.map((msg: any, idx: number) => (
+              <div key={idx} className="rounded-lg border border-border bg-muted/20 p-3 text-xs">
+                <div className="font-mono text-muted-foreground mb-1">
+                  {msg["@type"]?.split(".").pop()}
+                </div>
+                <pre className="whitespace-pre-wrap text-muted-foreground text-[11px] overflow-auto max-h-40">
+                  {JSON.stringify(msg, null, 2)}
+                </pre>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
 
       {/* Deposit progress for DEPOSIT_PERIOD */}
@@ -245,6 +262,15 @@ function ProposalDetail() {
           )}
         </Row>
         <Row label="Total Deposit">{formatAmount(currentDeposit)}</Row>
+        <Row label="Proposer">
+          <Link
+            to="/accounts/$address"
+            params={{ address: p.proposer }}
+            className="text-primary hover:underline font-mono text-xs"
+          >
+            {shorten(p.proposer, 14, 8)}
+          </Link>
+        </Row>
       </Card>
 
       {/* Voters */}
