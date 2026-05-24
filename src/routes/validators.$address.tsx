@@ -4,7 +4,19 @@ import { lcd, rpc, safe } from "@/lib/cosmos";
 import { Card, Badge, Skeleton } from "@/components/shared/ui";
 import { CopyButton } from "@/components/shared/CopyButton";
 import { formatAmount, pct, shorten } from "@/lib/format";
-import { ExternalLink, Coins, ArrowDownToLine, Send, Activity, Search, Repeat, Wallet } from "lucide-react";
+import {
+  ExternalLink,
+  Coins,
+  ArrowDownToLine,
+  Send,
+  Activity,
+  Search,
+  Repeat,
+  Wallet,
+  Edit,
+  Loader2,
+  Check,
+} from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useWallet } from "@/lib/wallet";
 import { useMemo, useState } from "react";
@@ -15,11 +27,18 @@ import { ValidatorAvatar, consAddrFromPubkey } from "@/routes/validators";
 import { normalizeHex } from "@/lib/bech32";
 import { fromBech32, toBech32, toHex } from "@cosmjs/encoding";
 import {
+  editValidator,
+  estimateFee,
+  type FeeTier,
+  type EditValidatorParams,
+} from "@/lib/tx";
+import { toast } from "sonner";
+import {
   BarChart,
   Bar,
   XAxis,
   YAxis,
-  Tooltip,
+  Tooltip as RechartsTooltip,
   ResponsiveContainer,
   PieChart,
   Pie,
@@ -44,6 +63,7 @@ function ValidatorDetail() {
   const [txMode, setTxMode] = useState<TxMode>("delegate");
   const [claimOpen, setClaimOpen] = useState(false);
   const [commOpen, setCommOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["validator", address],
@@ -138,6 +158,14 @@ function ValidatorDetail() {
     setClaimOpen(true);
   };
 
+  const openEdit = () => {
+    if (!wallet) {
+      connect();
+      return;
+    }
+    setEditOpen(true);
+  };
+
   if (isLoading) return <Skeleton className="h-64 w-full" />;
   if (!v)
     return (
@@ -161,7 +189,11 @@ function ValidatorDetail() {
         <div className="absolute -top-20 -right-20 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
         <div className="absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-[var(--chart-2)]/10 blur-3xl" />
         <div className="relative flex flex-col md:flex-row gap-5 items-start">
-          <ValidatorAvatar identity={v.description?.identity} moniker={v.description?.moniker} size={64} />
+          <ValidatorAvatar
+            identity={v.description?.identity}
+            moniker={v.description?.moniker}
+            size={64}
+          />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl font-bold">{v.description?.moniker}</h1>
@@ -198,7 +230,9 @@ function ValidatorDetail() {
               </p>
             )}
             <div className="mt-3 flex items-center gap-2 font-mono text-xs">
-              <span className="text-muted-foreground">{shorten(v.operator_address, 16, 8)}</span>
+              <span className="text-muted-foreground">
+                {shorten(v.operator_address, 16, 8)}
+              </span>
               <CopyButton value={v.operator_address} />
             </div>
           </div>
@@ -228,15 +262,23 @@ function ValidatorDetail() {
               <Coins className="h-4 w-4" /> Claim Rewards
             </button>
             {isOperator && (
-              <button
-                onClick={() => {
-                  if (!wallet) return connect();
-                  setCommOpen(true);
-                }}
-                className="btn-3d border border-warning/40 text-warning rounded-lg px-4 py-2 text-sm inline-flex items-center justify-center gap-2 hover:bg-warning/10"
-              >
-                <Wallet className="h-4 w-4" /> Withdraw Commission
-              </button>
+              <>
+                <button
+                  onClick={() => {
+                    if (!wallet) return connect();
+                    setCommOpen(true);
+                  }}
+                  className="btn-3d border border-warning/40 text-warning rounded-lg px-4 py-2 text-sm inline-flex items-center justify-center gap-2 hover:bg-warning/10"
+                >
+                  <Wallet className="h-4 w-4" /> Withdraw Commission
+                </button>
+                <button
+                  onClick={openEdit}
+                  className="btn-3d border border-primary/40 text-primary rounded-lg px-4 py-2 text-sm inline-flex items-center justify-center gap-2 hover:bg-primary/10"
+                >
+                  <Edit className="h-4 w-4" /> Edit Validator
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -270,7 +312,10 @@ function ValidatorDetail() {
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard label="Voting Power" value={formatAmount(v.tokens, { precision: 0 })} />
+        <MetricCard
+          label="Voting Power"
+          value={formatAmount(v.tokens, { precision: 0 })}
+        />
         <MetricCard
           label="Self Delegation"
           value={formatAmount(selfBondedAmt, { precision: 0 })}
@@ -313,7 +358,9 @@ function ValidatorDetail() {
                 <span className="font-mono text-xs">
                   {shorten(d.delegation.delegator_address, 12, 8)}
                 </span>
-                <span className="font-mono text-xs">{formatAmount(d.balance.amount)}</span>
+                <span className="font-mono text-xs">
+                  {formatAmount(d.balance.amount)}
+                </span>
               </Link>
             ))}
           {(!dels || dels.delegation_responses?.length === 0) && (
@@ -351,7 +398,321 @@ function ValidatorDetail() {
         validatorOperator={v.operator_address}
         commissionUjay={commissionAmt}
       />
+      <EditValidatorDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        validator={v}
+        selfAccount={selfAcc ?? ""}
+        wallet={wallet ?? ""}
+      />
     </div>
+  );
+}
+
+function EditValidatorDialog({
+  open,
+  onOpenChange,
+  validator,
+  selfAccount,
+  wallet,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  validator: any;
+  selfAccount: string;
+  wallet: string;
+}) {
+  const [moniker, setMoniker] = useState(validator.description?.moniker ?? "");
+  const [website, setWebsite] = useState(validator.description?.website ?? "");
+  const [identity, setIdentity] = useState(validator.description?.identity ?? "");
+  const [details, setDetails] = useState(validator.description?.details ?? "");
+  const [securityContact, setSecurityContact] = useState(
+    validator.description?.security_contact ?? "",
+  );
+  const [commissionRate, setCommissionRate] = useState(
+    (Number(validator.commission?.commission_rates?.rate ?? 0) * 100).toFixed(1),
+  );
+  const [tier, setTier] = useState<FeeTier>("average");
+  const [step, setStep] = useState<"form" | "confirming" | "result">("form");
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [txError, setTxError] = useState<string | null>(null);
+
+  const currentRate = Number(validator.commission?.commission_rates?.rate ?? 0);
+  const maxRate = Number(validator.commission?.commission_rates?.max_rate ?? 0);
+  const maxChangeRate = Number(validator.commission?.commission_rates?.max_change_rate ?? 0);
+  const lastUpdate = validator.commission?.update_time;
+
+  // Validasi commission rate
+  const newRateNum = Number(commissionRate) / 100;
+  const rateChange = currentRate - newRateNum; // positif = turun
+  const maxAllowedDecrease = maxChangeRate;
+  const isValidRate =
+    !isNaN(newRateNum) &&
+    newRateNum <= currentRate &&
+    newRateNum >= 0 &&
+    newRateNum <= maxRate &&
+    rateChange <= maxAllowedDecrease;
+
+  const submit = async () => {
+    if (!wallet) return;
+    if (!isValidRate) {
+      toast.error("Invalid commission rate");
+      return;
+    }
+
+    setStep("confirming");
+    setTxError(null);
+    try {
+      const params: EditValidatorParams = {
+        validatorAddress: validator.operator_address,
+        moniker: moniker || validator.description?.moniker || "[do-not-modify]",
+        website: website || "[do-not-modify]",
+        identity: identity || "[do-not-modify]",
+        securityContact: securityContact || "[do-not-modify]",
+        details: details || "[do-not-modify]",
+        commissionRate: commissionRate ? (Number(commissionRate) / 100).toString() : undefined,
+        signer: wallet,
+      };
+
+      const res = await editValidator(params, tier);
+      if (res.code && res.code !== 0)
+        throw new Error(res.rawLog || `Code ${res.code}`);
+      setTxHash(res.transactionHash);
+      setStep("result");
+      toast.success("Validator updated", {
+        description: shorten(res.transactionHash, 12, 8),
+      });
+    } catch (e: any) {
+      setTxError(e?.message ?? String(e));
+      setStep("result");
+      toast.error("Edit failed", { description: e?.message ?? String(e) });
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[520px] bg-card/95 backdrop-blur-xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Edit className="h-5 w-5 text-primary" />
+            Edit Validator
+          </DialogTitle>
+        </DialogHeader>
+        {step === "form" && (
+          <div className="space-y-4">
+            {/* Moniker */}
+            <div>
+              <label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Moniker
+              </label>
+              <input
+                value={moniker}
+                onChange={(e) => setMoniker(e.target.value)}
+                placeholder={validator.description?.moniker ?? "Validator name"}
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:border-primary"
+              />
+            </div>
+
+            {/* Website */}
+            <div>
+              <label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Website
+              </label>
+              <input
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+                placeholder="https://example.com"
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:border-primary"
+              />
+            </div>
+
+            {/* Identity */}
+            <div>
+              <label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Keybase Identity
+              </label>
+              <input
+                value={identity}
+                onChange={(e) => setIdentity(e.target.value)}
+                placeholder="A1B2C3D4E5F6..."
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:border-primary"
+              />
+            </div>
+
+            {/* Details */}
+            <div>
+              <label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Details
+              </label>
+              <textarea
+                value={details}
+                onChange={(e) => setDetails(e.target.value)}
+                placeholder="Validator description..."
+                rows={3}
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:border-primary"
+              />
+            </div>
+
+            {/* Security Contact */}
+            <div>
+              <label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Security Contact
+              </label>
+              <input
+                value={securityContact}
+                onChange={(e) => setSecurityContact(e.target.value)}
+                placeholder="security@example.com"
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:border-primary"
+              />
+            </div>
+
+            {/* Commission Rate */}
+            <div className="rounded-lg border border-border bg-muted/20 p-4">
+              <label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Commission Rate
+              </label>
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="number"
+                  min="0"
+                  max={(maxRate * 100).toString()}
+                  step="0.1"
+                  value={commissionRate}
+                  onChange={(e) => setCommissionRate(e.target.value)}
+                  className="w-24 rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:border-primary"
+                />
+                <span className="text-sm">%</span>
+              </div>
+              <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+                <p>
+                  Current:{" "}
+                  <span className="font-mono text-foreground">
+                    {(currentRate * 100).toFixed(1)}%
+                  </span>
+                  · Max:{" "}
+                  <span className="font-mono text-foreground">
+                    {(maxRate * 100).toFixed(1)}%
+                  </span>
+                </p>
+                <p>
+                  Max change/day:{" "}
+                  <span className="font-mono text-foreground">
+                    {(maxChangeRate * 100).toFixed(1)}%
+                  </span>
+                </p>
+                {lastUpdate && (
+                  <p>
+                    Last updated: {new Date(lastUpdate).toLocaleString()}
+                  </p>
+                )}
+                {!isNaN(newRateNum) && newRateNum > currentRate && (
+                  <p className="text-destructive">⚠️ Cannot increase commission rate</p>
+                )}
+                {!isNaN(newRateNum) && newRateNum === currentRate && (
+                  <p className="text-muted-foreground">
+                    Same as current — no change
+                  </p>
+                )}
+                {!isNaN(newRateNum) && newRateNum < currentRate && (
+                  <p className="text-success">
+                    ✅ Decreasing to {commissionRate}% (max {maxAllowedDecrease * 100}% per day)
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Fee Picker */}
+            <div>
+              <label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Fee
+              </label>
+              <div className="mt-1 grid grid-cols-3 gap-2">
+                {(["low", "average", "high"] as FeeTier[]).map((t) => {
+                  const f = estimateFee(t, 200_000);
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setTier(t)}
+                      className={`rounded-lg border px-2 py-2 text-xs transition text-left ${
+                        tier === t
+                          ? "border-primary bg-primary/10"
+                          : "border-border hover:border-primary/40"
+                      }`}
+                    >
+                      <div className="capitalize font-medium">{t}</div>
+                      <div className="font-mono text-[10px] text-muted-foreground mt-0.5">
+                        {formatAmount(f.raw, { precision: 6 })}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <button
+              onClick={submit}
+              disabled={!isValidRate && newRateNum > 0}
+              className="w-full bg-gradient-primary text-primary-foreground rounded-lg py-2.5 text-sm font-medium hover:opacity-90 shadow-glow disabled:opacity-50"
+            >
+              Submit Edit
+            </button>
+          </div>
+        )}
+        {step === "confirming" && (
+          <div className="py-12 flex flex-col items-center gap-4">
+            <Loader2 className="h-10 w-10 text-primary animate-spin" />
+            <div className="text-sm text-muted-foreground">
+              Approve in Keplr…
+            </div>
+          </div>
+        )}
+        {step === "result" && (
+          <div className="py-6 flex flex-col items-center gap-3">
+            {txError ? (
+              <>
+                <div className="h-12 w-12 rounded-full bg-destructive/15 grid place-items-center text-destructive">
+                  ✕
+                </div>
+                <div className="text-sm font-semibold">Transaction failed</div>
+                <p className="text-xs text-muted-foreground text-center max-w-sm break-words">
+                  {txError}
+                </p>
+                <button
+                  onClick={() => setStep("form")}
+                  className="mt-2 px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent/40"
+                >
+                  Try again
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="h-12 w-12 rounded-full bg-success/15 grid place-items-center text-success">
+                  <Check className="h-6 w-6" />
+                </div>
+                <div className="text-sm font-semibold">
+                  Validator updated successfully
+                </div>
+                {txHash && (
+                  <a
+                    href={`/transactions/${txHash}`}
+                    className="text-xs font-mono text-primary hover:underline break-all text-center"
+                  >
+                    {txHash}
+                  </a>
+                )}
+                <button
+                  onClick={() => onOpenChange(false)}
+                  className="mt-2 px-4 py-2 rounded-lg bg-gradient-primary text-primary-foreground text-sm"
+                >
+                  Done
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -366,15 +727,28 @@ function MetricCard({
 }) {
   return (
     <Card className="card-3d p-4">
-      <div className="text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className="text-lg font-bold mt-1 bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">{value}</div>
-      {hint && <div className="text-xs text-muted-foreground mt-0.5">{hint}</div>}
+      <div className="text-xs uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
+      <div className="text-lg font-bold mt-1 bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">
+        {value}
+      </div>
+      {hint && (
+        <div className="text-xs text-muted-foreground mt-0.5">{hint}</div>
+      )}
     </Card>
   );
 }
 
+// Semua fungsi di bawah ini (UptimeCard, BlockSignatureDialog, ValidatorSwitcher,
+// selfAccountFromValoper, Row, ExtendedDetails, AddrRow, CommissionDial,
+// ValidatorTransactions, DelegationsChart) TETAP SAMA, GAK DIUBAH.
+
 function UptimeCard({ validator }: { validator: any }) {
-  const valcons = useMemo(() => consAddrFromPubkey(validator.consensus_pubkey), [validator]);
+  const valcons = useMemo(
+    () => consAddrFromPubkey(validator.consensus_pubkey),
+    [validator],
+  );
   const hexCons = useMemo(() => {
     try {
       if (!valcons) return null;
@@ -405,13 +779,17 @@ function UptimeCard({ validator }: { validator: any }) {
 
   const heights = useMemo(() => {
     if (!tip) return [] as number[];
-    return Array.from({ length: 100 }, (_, i) => tip - i).filter((h) => h > 0);
+    return Array.from({ length: 100 }, (_, i) => tip - i).filter(
+      (h) => h > 0,
+    );
   }, [tip]);
 
   const { data: blocks } = useQuery({
     queryKey: ["uptime-commits-100", heights[0] ?? 0],
     queryFn: async () => {
-      const res = await Promise.all(heights.map((h) => rpc.block(h).catch(() => null)));
+      const res = await Promise.all(
+        heights.map((h) => rpc.block(h).catch(() => null)),
+      );
       return res;
     },
     enabled: heights.length > 0 && !!hexCons,
@@ -421,7 +799,11 @@ function UptimeCard({ validator }: { validator: any }) {
 
   const recent = useMemo(() => {
     if (!blocks || !hexCons)
-      return [] as Array<{ h: number; sig: "yes" | "no" | "absent"; time?: string }>;
+      return [] as Array<{
+        h: number;
+        sig: "yes" | "no" | "absent";
+        time?: string;
+      }>;
     return blocks
       .filter(Boolean)
       .map((b: any) => {
@@ -429,7 +811,9 @@ function UptimeCard({ validator }: { validator: any }) {
         const time = b?.result?.block?.header?.time;
         const sigs: any[] = b?.result?.block?.last_commit?.signatures ?? [];
         const found = sigs.find(
-          (s) => s.validator_address && normalizeHex(s.validator_address) === hexCons,
+          (s) =>
+            s.validator_address &&
+            normalizeHex(s.validator_address) === hexCons,
         );
         const st: "yes" | "no" | "absent" = found
           ? found.block_id_flag === 2 ||
@@ -443,8 +827,12 @@ function UptimeCard({ validator }: { validator: any }) {
       .sort((a, b) => b.h - a.h);
   }, [blocks, hexCons]);
 
-  const window = Number(slashingParams?.params?.signed_blocks_window ?? 10000);
-  const missed = Number(signing?.val_signing_info?.missed_blocks_counter ?? 0);
+  const window = Number(
+    slashingParams?.params?.signed_blocks_window ?? 10000,
+  );
+  const missed = Number(
+    signing?.val_signing_info?.missed_blocks_counter ?? 0,
+  );
   const uptime = window ? Math.max(0, 1 - missed / window) : 1;
   const tombstoned = signing?.val_signing_info?.tombstoned;
 
@@ -452,7 +840,9 @@ function UptimeCard({ validator }: { validator: any }) {
   const localMissed = recent.filter((r) => r.sig === "no").length;
   const localAbsent = recent.filter((r) => r.sig === "absent").length;
 
-  const [filter, setFilter] = useState<"all" | "yes" | "no" | "absent">("all");
+  const [filter, setFilter] = useState<"all" | "yes" | "no" | "absent">(
+    "all",
+  );
   const [selected, setSelected] = useState<{
     h: number;
     sig: "yes" | "no" | "absent";
@@ -460,7 +850,8 @@ function UptimeCard({ validator }: { validator: any }) {
   } | null>(null);
 
   const filtered = useMemo(
-    () => (filter === "all" ? recent : recent.filter((r) => r.sig === filter)),
+    () =>
+      filter === "all" ? recent : recent.filter((r) => r.sig === filter),
     [recent, filter],
   );
 
@@ -490,7 +881,9 @@ function UptimeCard({ validator }: { validator: any }) {
           </div>
           <div>
             <span className="text-muted-foreground">Missed: </span>
-            <span className="font-mono text-destructive">{missed.toLocaleString()}</span>
+            <span className="font-mono text-destructive">
+              {missed.toLocaleString()}
+            </span>
           </div>
           <div>
             <span className="text-muted-foreground">Uptime: </span>
@@ -535,7 +928,9 @@ function UptimeCard({ validator }: { validator: any }) {
 
       <div
         className="grid gap-1.5"
-        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(22px, 1fr))" }}
+        style={{
+          gridTemplateColumns: "repeat(auto-fill, minmax(22px, 1fr))",
+        }}
       >
         {recent.length === 0 &&
           Array.from({ length: 100 }).map((_, i) => (
@@ -595,9 +990,18 @@ function BlockSignatureDialog({
   moniker?: string;
 }) {
   if (!info) return null;
-  const label = info.sig === "yes" ? "Signed" : info.sig === "no" ? "Missed" : "Absent";
+  const label =
+    info.sig === "yes"
+      ? "Signed"
+      : info.sig === "no"
+        ? "Missed"
+        : "Absent";
   const variant: "success" | "warning" | "destructive" =
-    info.sig === "yes" ? "success" : info.sig === "no" ? "warning" : "destructive";
+    info.sig === "yes"
+      ? "success"
+      : info.sig === "no"
+        ? "warning"
+        : "destructive";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -609,21 +1013,28 @@ function BlockSignatureDialog({
         </DialogHeader>
         <div className="space-y-3 text-sm">
           <div>
-            <div className="text-xs uppercase text-muted-foreground">Validator</div>
+            <div className="text-xs uppercase text-muted-foreground">
+              Validator
+            </div>
             <div className="font-medium">{moniker}</div>
           </div>
           {info.time && (
             <div>
-              <div className="text-xs uppercase text-muted-foreground">Time</div>
+              <div className="text-xs uppercase text-muted-foreground">
+                Time
+              </div>
               <div className="font-mono text-xs">
                 {new Date(info.time).toLocaleString()}
               </div>
             </div>
           )}
           <div>
-            <div className="text-xs uppercase text-muted-foreground">Signature status</div>
+            <div className="text-xs uppercase text-muted-foreground">
+              Signature status
+            </div>
             <div className="text-sm">
-              {info.sig === "yes" && "Validator signed this block (counted toward uptime)."}
+              {info.sig === "yes" &&
+                "Validator signed this block (counted toward uptime)."}
               {info.sig === "no" &&
                 "Validator was in the active set but did NOT sign this block."}
               {info.sig === "absent" &&
@@ -681,10 +1092,17 @@ function ValidatorSwitcher({
     ];
     let filtered = all;
     if (status === "active")
-      filtered = all.filter((v: any) => v.status === "BOND_STATUS_BONDED" && !v.jailed);
+      filtered = all.filter(
+        (v: any) =>
+          v.status === "BOND_STATUS_BONDED" && !v.jailed,
+      );
     else if (status === "inactive")
-      filtered = all.filter((v: any) => v.status !== "BOND_STATUS_BONDED" && !v.jailed);
-    else if (status === "jailed") filtered = all.filter((v: any) => v.jailed);
+      filtered = all.filter(
+        (v: any) =>
+          v.status !== "BOND_STATUS_BONDED" && !v.jailed,
+      );
+    else if (status === "jailed")
+      filtered = all.filter((v: any) => v.jailed);
 
     const ql = q.trim().toLowerCase();
     if (ql)
@@ -746,7 +1164,9 @@ function ValidatorSwitcher({
                         });
                       }}
                       className={`w-full text-left px-3 py-2 hover:bg-accent/40 flex items-center gap-3 ${
-                        v.operator_address === current ? "bg-primary/10" : ""
+                        v.operator_address === current
+                          ? "bg-primary/10"
+                          : ""
                       }`}
                     >
                       <ValidatorAvatar
@@ -756,7 +1176,8 @@ function ValidatorSwitcher({
                       />
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium truncate">
-                          {v.description?.moniker || shorten(v.operator_address)}
+                          {v.description?.moniker ||
+                            shorten(v.operator_address)}
                         </div>
                         <div className="text-[10px] text-muted-foreground font-mono truncate">
                           {shorten(v.operator_address, 12, 6)}
@@ -813,8 +1234,12 @@ function selfAccountFromValoper(valoper: string): string | null {
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 py-2 border-b border-border/60 last:border-b-0">
-      <div className="text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className="text-sm font-mono break-all sm:text-right max-w-full">{value}</div>
+      <div className="text-xs uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
+      <div className="text-sm font-mono break-all sm:text-right max-w-full">
+        {value}
+      </div>
     </div>
   );
 }
@@ -825,7 +1250,9 @@ function ExtendedDetails({ validator: v }: { validator: any }) {
     const cons = consAddrFromPubkey(v.consensus_pubkey);
     let hex: string | null = null;
     try {
-      hex = cons ? toHex(fromBech32(cons).data).toUpperCase() : null;
+      hex = cons
+        ? toHex(fromBech32(cons).data).toUpperCase()
+        : null;
     } catch {
       hex = null;
     }
@@ -846,7 +1273,8 @@ function ExtendedDetails({ validator: v }: { validator: any }) {
   });
   const { data: dels } = useQuery({
     queryKey: ["val-dels", v.operator_address],
-    queryFn: () => safe(lcd.validatorDelegations(v.operator_address)),
+    queryFn: () =>
+      safe(lcd.validatorDelegations(v.operator_address)),
   });
   const { data: signing } = useQuery({
     queryKey: ["signing-info-one", valcons ?? ""],
@@ -857,24 +1285,38 @@ function ExtendedDetails({ validator: v }: { validator: any }) {
   const tokens = Number(v.tokens ?? 0);
   const totalBonded = Number(pool?.pool?.bonded_tokens ?? 0);
   const annualProv = Number(ap?.annual_provisions ?? 0);
-  const commRate = Number(v.commission?.commission_rates?.rate ?? 0);
-  const commMax = Number(v.commission?.commission_rates?.max_rate ?? 0);
-  const commMaxChg = Number(v.commission?.commission_rates?.max_change_rate ?? 0);
-  const commTax = Number(distParams?.params?.community_tax ?? 0);
+  const commRate = Number(
+    v.commission?.commission_rates?.rate ?? 0,
+  );
+  const commMax = Number(
+    v.commission?.commission_rates?.max_rate ?? 0,
+  );
+  const commMaxChg = Number(
+    v.commission?.commission_rates?.max_change_rate ?? 0,
+  );
+  const commTax = Number(
+    distParams?.params?.community_tax ?? 0,
+  );
 
   const annualProfitU =
     totalBonded > 0
-      ? (annualProv * (1 - commTax) * tokens * (1 - commRate)) / totalBonded
+      ? (annualProv *
+          (1 - commTax) *
+          tokens *
+          (1 - commRate)) /
+        totalBonded
       : 0;
   const apr =
     totalBonded > 0 && tokens > 0
-      ? (annualProv * (1 - commTax) * (1 - commRate)) / totalBonded
+      ? (annualProv * (1 - commTax) * (1 - commRate)) /
+        totalBonded
       : 0;
 
   const selfDel = useMemo(() => {
     if (!selfAccount) return null;
     const found = (dels?.delegation_responses ?? []).find(
-      (d: any) => d.delegation.delegator_address === selfAccount,
+      (d: any) =>
+        d.delegation.delegator_address === selfAccount,
     );
     return found?.balance?.amount ?? null;
   }, [dels, selfAccount]);
@@ -905,7 +1347,8 @@ function ExtendedDetails({ validator: v }: { validator: any }) {
                   rel="noreferrer"
                   className="text-primary hover:underline inline-flex items-center gap-1"
                 >
-                  {v.description.website} <ExternalLink className="h-3 w-3" />
+                  {v.description.website}{" "}
+                  <ExternalLink className="h-3 w-3" />
                 </a>
               ) : (
                 <span className="text-muted-foreground">—</span>
@@ -922,11 +1365,19 @@ function ExtendedDetails({ validator: v }: { validator: any }) {
           />
           <Row
             label="Identity"
-            value={v.description?.identity || <span className="text-muted-foreground">—</span>}
+            value={
+              v.description?.identity || (
+                <span className="text-muted-foreground">—</span>
+              )
+            }
           />
           <Row
             label="Details"
-            value={v.description?.details || <span className="text-muted-foreground">—</span>}
+            value={
+              v.description?.details || (
+                <span className="text-muted-foreground">—</span>
+              )
+            }
           />
         </div>
       </Card>
@@ -952,15 +1403,23 @@ function ExtendedDetails({ validator: v }: { validator: any }) {
               </Badge>
             }
           />
-          <Row label="Jailed" value={v.jailed ? "Yes" : "No"} />
+          <Row
+            label="Jailed"
+            value={v.jailed ? "Yes" : "No"}
+          />
           <Row
             label="Tombstoned"
-            value={signing?.val_signing_info?.tombstoned ? "Yes" : "No"}
+            value={
+              signing?.val_signing_info?.tombstoned
+                ? "Yes"
+                : "No"
+            }
           />
           <Row
             label="Missed Blocks"
             value={Number(
-              signing?.val_signing_info?.missed_blocks_counter ?? 0,
+              signing?.val_signing_info
+                ?.missed_blocks_counter ?? 0,
             ).toLocaleString()}
           />
         </div>
@@ -975,14 +1434,20 @@ function ExtendedDetails({ validator: v }: { validator: any }) {
             label="Validator Bonded"
             value={
               v.validator_bond_shares
-                ? formatAmount(v.validator_bond_shares, { precision: 0 })
+                ? formatAmount(v.validator_bond_shares, {
+                    precision: 0,
+                  })
                 : "—"
             }
           />
           <Row
             label="Liquid Shares"
             value={
-              v.liquid_shares ? formatAmount(v.liquid_shares, { precision: 0 }) : "—"
+              v.liquid_shares
+                ? formatAmount(v.liquid_shares, {
+                    precision: 0,
+                  })
+                : "—"
             }
           />
         </div>
@@ -993,36 +1458,51 @@ function ExtendedDetails({ validator: v }: { validator: any }) {
           Stake
         </h3>
         <div className="space-y-1">
-          <Row label="Total Bonded Tokens" value={formatAmount(tokens, { precision: 0 })} />
+          <Row
+            label="Total Bonded Tokens"
+            value={formatAmount(tokens, { precision: 0 })}
+          />
           <Row
             label="Self Bonded"
             value={
-              selfDel ? formatAmount(selfDel, { precision: 0 }) : (
+              selfDel ? (
+                formatAmount(selfDel, { precision: 0 })
+              ) : (
                 <span className="text-muted-foreground">—</span>
               )
             }
           />
           <Row
             label="Min Self Delegation"
-            value={formatAmount(v.min_self_delegation, { precision: 0 })}
+            value={formatAmount(v.min_self_delegation, {
+              precision: 0,
+            })}
           />
           <Row
             label="Annual Profit (est.)"
             value={
               <span>
-                {formatAmount(annualProfitU, { precision: 2 })}{" "}
+                {formatAmount(annualProfitU, {
+                  precision: 2,
+                })}{" "}
                 <span className="text-muted-foreground text-[11px]">
                   ≈ {(apr * 100).toFixed(2)}% APR
                 </span>
               </span>
             }
           />
-          <Row label="Unbonding Height" value={v.unbonding_height ?? "—"} />
+          <Row
+            label="Unbonding Height"
+            value={v.unbonding_height ?? "—"}
+          />
           <Row
             label="Unbonding Time"
             value={
-              v.unbonding_time && !v.unbonding_time.startsWith("1970")
-                ? new Date(v.unbonding_time).toLocaleString()
+              v.unbonding_time &&
+              !v.unbonding_time.startsWith("1970")
+                ? new Date(
+                    v.unbonding_time,
+                  ).toLocaleString()
                 : "—"
             }
           />
@@ -1034,14 +1514,22 @@ function ExtendedDetails({ validator: v }: { validator: any }) {
           Commission &amp; Rewards
         </h3>
         <div className="grid sm:grid-cols-3 gap-4">
-          <CommissionDial label="Current Rate" value={commRate} />
+          <CommissionDial
+            label="Current Rate"
+            value={commRate}
+          />
           <CommissionDial label="Max Rate" value={commMax} />
-          <CommissionDial label="Max Change / Day" value={commMaxChg} />
+          <CommissionDial
+            label="Max Change / Day"
+            value={commMaxChg}
+          />
         </div>
         <div className="mt-3 text-[11px] text-muted-foreground">
           Last updated:{" "}
           {v.commission?.update_time
-            ? new Date(v.commission.update_time).toLocaleString()
+            ? new Date(
+                v.commission.update_time,
+              ).toLocaleString()
             : "—"}
         </div>
       </Card>
@@ -1051,12 +1539,31 @@ function ExtendedDetails({ validator: v }: { validator: any }) {
           Addresses
         </h3>
         <div className="space-y-1">
-          <AddrRow label="Account Address" value={selfAccount ?? "—"} />
-          <AddrRow label="Operator Address" value={v.operator_address} />
-          <AddrRow label="Hex Address" value={hexAddr ?? "—"} />
-          <AddrRow label="Signer Address" value={selfAccount ?? "—"} />
-          <AddrRow label="Consensus Address" value={valcons ?? "—"} />
-          <AddrRow label="Consensus Public Key" value={consPubkey} hint={consPubkeyType} />
+          <AddrRow
+            label="Account Address"
+            value={selfAccount ?? "—"}
+          />
+          <AddrRow
+            label="Operator Address"
+            value={v.operator_address}
+          />
+          <AddrRow
+            label="Hex Address"
+            value={hexAddr ?? "—"}
+          />
+          <AddrRow
+            label="Signer Address"
+            value={selfAccount ?? "—"}
+          />
+          <AddrRow
+            label="Consensus Address"
+            value={valcons ?? "—"}
+          />
+          <AddrRow
+            label="Consensus Public Key"
+            value={consPubkey}
+            hint={consPubkeyType}
+          />
         </div>
       </Card>
     </div>
@@ -1076,7 +1583,11 @@ function AddrRow({
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 py-2 border-b border-border/60 last:border-b-0">
       <div className="text-xs uppercase tracking-wider text-muted-foreground">
         {label}
-        {hint && <div className="text-[10px] normal-case text-muted-foreground/70 mt-0.5">{hint}</div>}
+        {hint && (
+          <div className="text-[10px] normal-case text-muted-foreground/70 mt-0.5">
+            {hint}
+          </div>
+        )}
       </div>
       <div className="flex items-center gap-2 font-mono text-xs break-all">
         <span>{value}</span>
@@ -1086,13 +1597,24 @@ function AddrRow({
   );
 }
 
-function CommissionDial({ label, value }: { label: string; value: number }) {
+function CommissionDial({
+  label,
+  value,
+}: {
+  label: string;
+  value: number;
+}) {
   const v = Math.min(1, Math.max(0, value));
   const C = 2 * Math.PI * 36;
   const dash = C * v;
   return (
     <div className="flex items-center gap-3">
-      <svg width="84" height="84" viewBox="0 0 84 84" className="shrink-0">
+      <svg
+        width="84"
+        height="84"
+        viewBox="0 0 84 84"
+        className="shrink-0"
+      >
         <circle
           cx="42"
           cy="42"
@@ -1128,19 +1650,28 @@ function CommissionDial({ label, value }: { label: string; value: number }) {
   );
 }
 
-function ValidatorTransactions({ validator: v }: { validator: any }) {
-  const [tab, setTab] = useState<"all" | "delegate" | "unbond">("all");
+function ValidatorTransactions({
+  validator: v,
+}: {
+  validator: any;
+}) {
+  const [tab, setTab] = useState<
+    "all" | "delegate" | "unbond"
+  >("all");
   const operator = v.operator_address;
 
   const query = useMemo(() => {
-    if (tab === "delegate") return `delegate.validator='${operator}'`;
-    if (tab === "unbond") return `unbond.validator='${operator}'`;
+    if (tab === "delegate")
+      return `delegate.validator='${operator}'`;
+    if (tab === "unbond")
+      return `unbond.validator='${operator}'`;
     return `message.sender='${selfAccountFromValoper(operator) ?? operator}'`;
   }, [tab, operator]);
 
   const { data, isLoading } = useQuery({
     queryKey: ["val-tx-search", query],
-    queryFn: () => safe(rpc.txSearch(query, 1, 25, "desc")),
+    queryFn: () =>
+      safe(rpc.txSearch(query, 1, 25, "desc")),
     refetchInterval: 30_000,
   });
 
@@ -1149,21 +1680,25 @@ function ValidatorTransactions({ validator: v }: { validator: any }) {
   return (
     <Card className="overflow-hidden">
       <div className="px-5 py-4 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <h2 className="font-semibold">Transactions &amp; Voting Power Events</h2>
+        <h2 className="font-semibold">
+          Transactions &amp; Voting Power Events
+        </h2>
         <div className="flex gap-1 p-1 bg-muted/30 rounded-lg text-xs">
-          {(["all", "delegate", "unbond"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-3 py-1 rounded-md capitalize transition ${
-                tab === t
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {t}
-            </button>
-          ))}
+          {(["all", "delegate", "unbond"] as const).map(
+            (t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`px-3 py-1 rounded-md capitalize transition ${
+                  tab === t
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t}
+              </button>
+            ),
+          )}
         </div>
       </div>
       <div className="divide-y divide-border">
@@ -1181,19 +1716,30 @@ function ValidatorTransactions({ validator: v }: { validator: any }) {
           <Link
             key={t.hash}
             to="/transactions/$hash"
-            params={{ hash: String(t.hash).toUpperCase() }}
+            params={{
+              hash: String(t.hash).toUpperCase(),
+            }}
             className="flex items-center justify-between px-5 py-3 hover:bg-accent/30"
           >
             <div className="min-w-0">
               <div className="font-mono text-xs truncate">
-                {shorten(String(t.hash).toUpperCase(), 14, 10)}
+                {shorten(
+                  String(t.hash).toUpperCase(),
+                  14,
+                  10,
+                )}
               </div>
               <div className="text-[11px] text-muted-foreground">
-                Block #{Number(t.height).toLocaleString()} ·{" "}
+                Block #{Number(t.height).toLocaleString()}{" "}
+                ·{" "}
                 {t.tx_result?.code === 0 ? (
-                  <span className="text-success">Success</span>
+                  <span className="text-success">
+                    Success
+                  </span>
                 ) : (
-                  <span className="text-destructive">Failed</span>
+                  <span className="text-destructive">
+                    Failed
+                  </span>
                 )}
               </div>
             </div>
@@ -1229,14 +1775,18 @@ function DelegationsChart({
   const sorted = useMemo(() => {
     const list: any[] = dels?.delegation_responses ?? [];
     return [...list].sort(
-      (a, b) => Number(b.balance.amount) - Number(a.balance.amount),
+      (a, b) =>
+        Number(b.balance.amount) -
+        Number(a.balance.amount),
     );
   }, [dels]);
 
   const top = useMemo(() => {
     return sorted.slice(0, 10).map((d, i) => {
       const addr = d.delegation.delegator_address;
-      const amount = Number(d.balance.amount) / Math.pow(10, decimals);
+      const amount =
+        Number(d.balance.amount) /
+        Math.pow(10, decimals);
       return {
         name: shorten(addr, 6, 4),
         full: addr,
@@ -1249,18 +1799,38 @@ function DelegationsChart({
 
   const composition = useMemo(() => {
     const total = Number(validatorTokens) || 0;
-    const visible = sorted.reduce((s, d) => s + Number(d.balance.amount), 0);
+    const visible = sorted.reduce(
+      (s, d) => s + Number(d.balance.amount),
+      0,
+    );
     const top5 = sorted.slice(0, 5);
-    const others = visible - top5.reduce((s, d) => s + Number(d.balance.amount), 0);
+    const others =
+      visible -
+      top5.reduce(
+        (s, d) => s + Number(d.balance.amount),
+        0,
+      );
     const hidden = Math.max(0, total - visible);
     const arr = top5.map((d) => ({
-      name: shorten(d.delegation.delegator_address, 6, 4),
-      value: Number(d.balance.amount) / Math.pow(10, decimals),
+      name: shorten(
+        d.delegation.delegator_address,
+        6,
+        4,
+      ),
+      value:
+        Number(d.balance.amount) /
+        Math.pow(10, decimals),
     }));
     if (others > 0)
-      arr.push({ name: "Others (loaded)", value: others / Math.pow(10, decimals) });
+      arr.push({
+        name: "Others (loaded)",
+        value: others / Math.pow(10, decimals),
+      });
     if (hidden > 0)
-      arr.push({ name: "Other delegators", value: hidden / Math.pow(10, decimals) });
+      arr.push({
+        name: "Other delegators",
+        value: hidden / Math.pow(10, decimals),
+      });
     return arr;
   }, [sorted, validatorTokens, decimals]);
 
@@ -1272,7 +1842,9 @@ function DelegationsChart({
         <div className="mb-4 flex items-center gap-3">
           <span className="h-2.5 w-2.5 rounded-full bg-[var(--chart-1)] shadow-[0_0_14px_var(--chart-1)]" />
           <div>
-            <h2 className="font-semibold">Top 10 Delegators</h2>
+            <h2 className="font-semibold">
+              Top 10 Delegators
+            </h2>
             <div className="text-xs text-muted-foreground">
               Distribution by delegated {denom}
             </div>
@@ -1280,27 +1852,56 @@ function DelegationsChart({
         </div>
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={top} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+            <BarChart
+              data={top}
+              margin={{
+                top: 8,
+                right: 8,
+                bottom: 8,
+                left: 0,
+              }}
+            >
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="var(--border)"
+              />
               <XAxis
                 dataKey="name"
                 stroke="var(--muted-foreground)"
                 tick={{ fontSize: 11 }}
               />
-              <YAxis stroke="var(--muted-foreground)" tick={{ fontSize: 11 }} />
-              <Tooltip
+              <YAxis
+                stroke="var(--muted-foreground)"
+                tick={{ fontSize: 11 }}
+              />
+              <RechartsTooltip
                 contentStyle={{
                   background: "var(--card)",
                   border: "1px solid var(--border)",
                   borderRadius: 8,
                   fontSize: 12,
                 }}
-                formatter={(v: any) => [`${Number(v).toLocaleString()} ${denom}`, "Amount"]}
-                labelFormatter={(_l, p: any) => p?.[0]?.payload?.full ?? ""}
+                formatter={(v: any) => [
+                  `${Number(v).toLocaleString()} ${denom}`,
+                  "Amount",
+                ]}
+                labelFormatter={(_l, p: any) =>
+                  p?.[0]?.payload?.full ?? ""
+                }
               />
-              <Bar dataKey="amount" radius={[6, 6, 0, 0]}>
+              <Bar
+                dataKey="amount"
+                radius={[6, 6, 0, 0]}
+              >
                 {top.map((d, i) => (
-                  <Cell key={i} fill={d.isSelf ? "var(--chart-4)" : d.fill} />
+                  <Cell
+                    key={i}
+                    fill={
+                      d.isSelf
+                        ? "var(--chart-4)"
+                        : d.fill
+                    }
+                  />
                 ))}
               </Bar>
             </BarChart>
@@ -1312,7 +1913,9 @@ function DelegationsChart({
         <div className="mb-4 flex items-center gap-3">
           <span className="h-2.5 w-2.5 rounded-full bg-[var(--chart-2)] shadow-[0_0_14px_var(--chart-2)]" />
           <div>
-            <h2 className="font-semibold">Voting Power Composition</h2>
+            <h2 className="font-semibold">
+              Voting Power Composition
+            </h2>
             <div className="text-xs text-muted-foreground">
               Share of total voting power
             </div>
@@ -1330,17 +1933,26 @@ function DelegationsChart({
                 paddingAngle={2}
               >
                 {composition.map((_, i) => (
-                  <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                  <Cell
+                    key={i}
+                    fill={
+                      CHART_COLORS[
+                        i % CHART_COLORS.length
+                      ]
+                    }
+                  />
                 ))}
               </Pie>
-              <Tooltip
+              <RechartsTooltip
                 contentStyle={{
                   background: "var(--card)",
                   border: "1px solid var(--border)",
                   borderRadius: 8,
                   fontSize: 12,
                 }}
-                formatter={(v: any) => `${Number(v).toLocaleString()} ${denom}`}
+                formatter={(v: any) =>
+                  `${Number(v).toLocaleString()} ${denom}`
+                }
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
             </PieChart>
