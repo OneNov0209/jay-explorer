@@ -409,6 +409,9 @@ function ValidatorDetail() {
   );
 }
 
+// ============================================================
+// EDIT VALIDATOR DIALOG — UPDATED: bisa naik & turun
+// ============================================================
 function EditValidatorDialog({
   open,
   onOpenChange,
@@ -442,16 +445,15 @@ function EditValidatorDialog({
   const maxChangeRate = Number(validator.commission?.commission_rates?.max_change_rate ?? 0);
   const lastUpdate = validator.commission?.update_time;
 
-  // Validasi commission rate
+  // Validasi commission rate — bisa NAIK dan TURUN
   const newRateNum = Number(commissionRate) / 100;
-  const rateChange = currentRate - newRateNum; // positif = turun
-  const maxAllowedDecrease = maxChangeRate;
+  const rateChange = newRateNum - currentRate; // positif = naik, negatif = turun
+  const absChange = Math.abs(rateChange);
   const isValidRate =
     !isNaN(newRateNum) &&
-    newRateNum <= currentRate &&
     newRateNum >= 0 &&
     newRateNum <= maxRate &&
-    rateChange <= maxAllowedDecrease;
+    absChange <= maxChangeRate;
 
   const submit = async () => {
     if (!wallet) return;
@@ -465,12 +467,12 @@ function EditValidatorDialog({
     try {
       const params: EditValidatorParams = {
         validatorAddress: validator.operator_address,
-        moniker: moniker || validator.description?.moniker || "[do-not-modify]",
+        moniker: moniker || "[do-not-modify]",
         website: website || "[do-not-modify]",
         identity: identity || "[do-not-modify]",
         securityContact: securityContact || "[do-not-modify]",
         details: details || "[do-not-modify]",
-        commissionRate: commissionRate ? (Number(commissionRate) / 100).toString() : undefined,
+        commissionRate: (newRateNum).toString(),
         signer: wallet,
       };
 
@@ -589,7 +591,8 @@ function EditValidatorDialog({
                   <span className="font-mono text-foreground">
                     {(currentRate * 100).toFixed(1)}%
                   </span>
-                  · Max:{" "}
+                  {" · "}
+                  Max:{" "}
                   <span className="font-mono text-foreground">
                     {(maxRate * 100).toFixed(1)}%
                   </span>
@@ -597,7 +600,7 @@ function EditValidatorDialog({
                 <p>
                   Max change/day:{" "}
                   <span className="font-mono text-foreground">
-                    {(maxChangeRate * 100).toFixed(1)}%
+                    ±{(maxChangeRate * 100).toFixed(1)}%
                   </span>
                 </p>
                 {lastUpdate && (
@@ -606,16 +609,28 @@ function EditValidatorDialog({
                   </p>
                 )}
                 {!isNaN(newRateNum) && newRateNum > currentRate && (
-                  <p className="text-destructive">⚠️ Cannot increase commission rate</p>
+                  <p className="text-warning">
+                    ⚠️ Increasing to {commissionRate}% (max +{(maxChangeRate * 100).toFixed(1)}% per day)
+                  </p>
+                )}
+                {!isNaN(newRateNum) && newRateNum < currentRate && (
+                  <p className="text-success">
+                    ✅ Decreasing to {commissionRate}% (max -{(maxChangeRate * 100).toFixed(1)}% per day)
+                  </p>
                 )}
                 {!isNaN(newRateNum) && newRateNum === currentRate && (
                   <p className="text-muted-foreground">
                     Same as current — no change
                   </p>
                 )}
-                {!isNaN(newRateNum) && newRateNum < currentRate && (
-                  <p className="text-success">
-                    ✅ Decreasing to {commissionRate}% (max {maxAllowedDecrease * 100}% per day)
+                {!isNaN(newRateNum) && newRateNum > maxRate && (
+                  <p className="text-destructive">
+                    ❌ Cannot exceed max rate ({(maxRate * 100).toFixed(1)}%)
+                  </p>
+                )}
+                {!isNaN(newRateNum) && absChange > maxChangeRate && (
+                  <p className="text-destructive">
+                    ❌ Change exceeds daily limit of ±{(maxChangeRate * 100).toFixed(1)}%
                   </p>
                 )}
               </div>
@@ -652,7 +667,7 @@ function EditValidatorDialog({
 
             <button
               onClick={submit}
-              disabled={!isValidRate && newRateNum > 0}
+              disabled={!isValidRate && !isNaN(newRateNum)}
               className="w-full bg-gradient-primary text-primary-foreground rounded-lg py-2.5 text-sm font-medium hover:opacity-90 shadow-glow disabled:opacity-50"
             >
               Submit Edit
@@ -740,9 +755,7 @@ function MetricCard({
   );
 }
 
-// Semua fungsi di bawah ini (UptimeCard, BlockSignatureDialog, ValidatorSwitcher,
-// selfAccountFromValoper, Row, ExtendedDetails, AddrRow, CommissionDial,
-// ValidatorTransactions, DelegationsChart) TETAP SAMA, GAK DIUBAH.
+// Semua fungsi di bawah ini TETAP SAMA, TIDAK DIUBAH.
 
 function UptimeCard({ validator }: { validator: any }) {
   const valcons = useMemo(
