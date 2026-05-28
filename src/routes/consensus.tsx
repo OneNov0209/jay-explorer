@@ -58,7 +58,6 @@ function ConsensusPage() {
     refetchInterval: 3000,
   });
 
-  // Fetch bonded validators from LCD
   const { data: bonded } = useQuery({
     queryKey: ["vals-bonded-consensus"],
     queryFn: async () => {
@@ -104,16 +103,16 @@ function ConsensusPage() {
     return maxRate > 0 ? `${Math.round(maxRate)}%` : "0%";
   }, [round]);
 
-  // 🔥 MAPPING OTOMATIS: Buat Map dari base64 pubkey ke moniker
-  const pubkeyToMonikerMap = useMemo(() => {
+  // 🔥 MAPPING: Base64 pubkey dari dump ke moniker dari LCD
+  const pubkeyToMoniker = useMemo(() => {
     const map = new Map<string, string>();
     const validators = bonded?.validators || [];
     
     for (const v of validators) {
-      const pubkeyBase64 = v.consensus_pubkey?.key;
-      const moniker = v.description?.moniker || "Unknown";
-      if (pubkeyBase64) {
-        map.set(pubkeyBase64, moniker);
+      const pubkey = v.consensus_pubkey?.key;
+      const moniker = v.description?.moniker;
+      if (pubkey && moniker) {
+        map.set(pubkey, moniker);
       }
     }
     return map;
@@ -125,11 +124,13 @@ function ConsensusPage() {
     const validator = positionValidators[index];
     if (!validator) return `#${index + 1}`;
     
-    const pubkeyBase64 = validator.pub_key?.value;
-    if (pubkeyBase64 && pubkeyToMonikerMap.has(pubkeyBase64)) {
-      return pubkeyToMonikerMap.get(pubkeyBase64)!;
+    // Match berdasarkan pub_key.value (base64) dari dump
+    const pubkey = validator.pub_key?.value;
+    if (pubkey && pubkeyToMoniker.has(pubkey)) {
+      return pubkeyToMoniker.get(pubkey)!;
     }
     
+    // Fallback ke hex address
     return validator.address ? validator.address.slice(0, 12) + "..." : `#${index + 1}`;
   };
 
@@ -142,6 +143,7 @@ function ConsensusPage() {
   const totalValidators = positionValidators.length;
   const activePrecommits = precommits.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
 
+  // Update vote history
   useMemo(() => {
     if (totalValidators > 0) {
       const now = new Date();
@@ -441,6 +443,7 @@ function ConsensusPage() {
                     const isPrecommitNil = voteSet.precommits?.[i]?.toLowerCase() === "nil-vote";
                     const isProposer = i === proposerIndex;
                     
+                    // 🔥 DAPATKAN NAMA VALIDATOR
                     const validatorName = getValidatorName(i);
                     
                     let bgColor = "bg-slate-700";
