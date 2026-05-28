@@ -1,4 +1,4 @@
-// src/routes/consensus.tsx
+// src/routes/consensus.tsx - FULL WORKING SCRIPT dengan mapping OTOMATIS
 
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -6,8 +6,6 @@ import { useMemo, useState } from "react";
 import { Card } from "@/components/shared/ui";
 import { defaultNetwork } from "@/data/networks";
 import { formatNumber } from "@/lib/format";
-import { consAddrFromPubkey } from "@/routes/validators";
-import { fromBech32, toHex } from "@cosmjs/encoding";
 import { Activity, Clock, Network, Wifi, Circle, ChevronRight, TrendingUp, BarChart3, PieChart, Zap, Award, Radio, RefreshCw } from "lucide-react";
 import {
   AreaChart,
@@ -35,25 +33,10 @@ export const Route = createFileRoute("/consensus")({
   component: ConsensusPage,
 });
 
-// Helper: Convert base64 pubkey to hex address
-function pubkeyToHexAddress(pubkeyBase64: string): string {
-  try {
-    const binaryString = atob(pubkeyBase64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
-  } catch (e) {
-    return "";
-  }
-}
-
 function ConsensusPage() {
   const [rpcUrl, setRpcUrl] = useState(defaultNetwork.rpcs[0] + "/consensus_state");
   const [voteHistory, setVoteHistory] = useState<{ time: string; voted: number; total: number }[]>([]);
 
-  // Fetch consensus state
   const { data: state, isLoading, refetch } = useQuery({
     queryKey: ["consensus-state", rpcUrl],
     queryFn: async () => {
@@ -64,7 +47,6 @@ function ConsensusPage() {
     refetchInterval: 3000,
   });
 
-  // Fetch dump consensus state
   const { data: dumpState } = useQuery({
     queryKey: ["dump-consensus-state", rpcUrl],
     queryFn: async () => {
@@ -76,7 +58,6 @@ function ConsensusPage() {
     refetchInterval: 3000,
   });
 
-  // Fetch bonded validators from LCD
   const { data: bonded } = useQuery({
     queryKey: ["vals-bonded-consensus"],
     queryFn: async () => {
@@ -122,7 +103,7 @@ function ConsensusPage() {
     return maxRate > 0 ? `${Math.round(maxRate)}%` : "0%";
   }, [round]);
 
-  // Build map: pubkey base64 -> moniker
+  // 🔥 MAPPING OTOMATIS: Buat Map dari base64 pubkey ke moniker
   const pubkeyToMonikerMap = useMemo(() => {
     const map = new Map<string, string>();
     const validators = bonded?.validators || [];
@@ -132,24 +113,15 @@ function ConsensusPage() {
       const moniker = v.description?.moniker || "Unknown";
       if (pubkeyBase64) {
         map.set(pubkeyBase64, moniker);
-        const hexKey = pubkeyToHexAddress(pubkeyBase64);
-        map.set(hexKey, moniker);
       }
     }
     return map;
   }, [bonded]);
 
+  // 🔥 Ambil data validator dari dump_consensus_state
   const positionValidators = dumpState?.result?.round_state?.validators?.validators || [];
-  const currentVoteSet = round?.height_vote_set?.[0];
-  const prevotes = currentVoteSet?.prevotes || [];
-  const precommits = currentVoteSet?.precommits || [];
-  const proposerIndex = round?.proposer?.index || 0;
-
-  const activeVotes = prevotes.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
-  const totalValidators = positionValidators.length;
-  const activePrecommits = precommits.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
-
-  // Get validator name by index
+  
+  // 🔥 Buat fungsi getValidatorName OTOMATIS berdasarkan pubkey dari dump
   const getValidatorName = (index: number): string => {
     const validator = positionValidators[index];
     if (!validator) return `#${index + 1}`;
@@ -161,6 +133,15 @@ function ConsensusPage() {
     
     return validator.address ? validator.address.slice(0, 12) + "..." : `#${index + 1}`;
   };
+
+  const currentVoteSet = round?.height_vote_set?.[0];
+  const prevotes = currentVoteSet?.prevotes || [];
+  const precommits = currentVoteSet?.precommits || [];
+  const proposerIndex = round?.proposer?.index || 0;
+
+  const activeVotes = prevotes.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
+  const totalValidators = positionValidators.length;
+  const activePrecommits = precommits.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
 
   // Update vote history for chart
   useMemo(() => {
@@ -322,7 +303,6 @@ function ConsensusPage() {
 
           {/* Charts Section */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            {/* Area Chart - Vote History */}
             <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 p-5">
               <div className="flex items-center gap-2 mb-4">
                 <TrendingUp className="h-5 w-5 text-blue-400" />
@@ -351,7 +331,6 @@ function ConsensusPage() {
               </ResponsiveContainer>
             </div>
 
-            {/* Bar Chart - Top Validators */}
             <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 p-5">
               <div className="flex items-center gap-2 mb-4">
                 <BarChart3 className="h-5 w-5 text-purple-400" />
@@ -361,7 +340,7 @@ function ConsensusPage() {
                 <BarChart data={votingPowerData} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                   <XAxis type="number" stroke="#94a3b8" fontSize={10} tick={{ fill: "#94a3b8" }} />
-                  <YAxis type="category" dataKey="name" stroke="#94a3b8" fontSize={10} tick={{ fill: "#94a3b8" }} width={100} />
+                  <YAxis type="category" dataKey="name" stroke="#94a3b8" fontSize={10} tick={{ fill: "#94a3b8" }} width={120} />
                   <Tooltip contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" }} formatter={(value: number) => value.toLocaleString()} />
                   <Bar dataKey="power" fill="#8b5cf6" radius={[0, 4, 4, 0]}>
                     {votingPowerData.map((_: any, index: number) => (
@@ -441,7 +420,7 @@ function ConsensusPage() {
             </div>
           </div>
 
-          {/* Vote Display - With Validator Names */}
+          {/* Vote Display - WITH VALIDATOR NAMES (AUTOMATIC) */}
           {round?.height_vote_set?.map((voteSet: any, idx: number) => (
             <Card key={idx} className="overflow-hidden bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-2xl mb-6">
               <div className="p-5">
@@ -467,7 +446,7 @@ function ConsensusPage() {
                     const isPrecommitNil = voteSet.precommits?.[i]?.toLowerCase() === "nil-vote";
                     const isProposer = i === proposerIndex;
                     
-                    // 🔥 GET VALIDATOR NAME
+                    // 🔥 AUTO GET VALIDATOR NAME from positionValidators
                     const validatorName = getValidatorName(i);
                     
                     let bgColor = "bg-slate-700";
