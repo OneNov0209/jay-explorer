@@ -1,4 +1,4 @@
-// src/routes/consensus.tsx - FULL WORKING SCRIPT dengan mapping OTOMATIS
+// src/routes/consensus.tsx - FULL WORKING dengan import dari validators
 
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -6,6 +6,8 @@ import { useMemo, useState } from "react";
 import { Card } from "@/components/shared/ui";
 import { defaultNetwork } from "@/data/networks";
 import { formatNumber } from "@/lib/format";
+import { consAddrFromPubkey } from "@/routes/validators";
+import { fromBech32, toHex } from "@cosmjs/encoding";
 import { Activity, Clock, Network, Wifi, Circle, ChevronRight, TrendingUp, BarChart3, PieChart, Zap, Award, Radio, RefreshCw } from "lucide-react";
 import {
   AreaChart,
@@ -58,10 +60,11 @@ function ConsensusPage() {
     refetchInterval: 3000,
   });
 
-  const { data: bonded } = useQuery({
-    queryKey: ["vals-bonded-consensus"],
+  // Fetch ALL validators from LCD (bonded + unbonded)
+  const { data: allValidators } = useQuery({
+    queryKey: ["all-validators"],
     queryFn: async () => {
-      const res = await fetch(`${defaultNetwork.lcd}/cosmos/staking/v1beta1/validators?status=BOND_STATUS_BONDED&pagination.limit=150`);
+      const res = await fetch(`${defaultNetwork.lcd}/cosmos/staking/v1beta1/validators?pagination.limit=200`);
       return res.json();
     },
     staleTime: 60000,
@@ -103,35 +106,41 @@ function ConsensusPage() {
     return maxRate > 0 ? `${Math.round(maxRate)}%` : "0%";
   }, [round]);
 
-  // 🔥 MAPPING OTOMATIS: Buat Map dari base64 pubkey ke moniker
-  const pubkeyToMonikerMap = useMemo(() => {
+  // 🔥 MAPPING dari address HEX ke moniker menggunakan consAddrFromPubkey
+  const hexToMonikerMap = useMemo(() => {
     const map = new Map<string, string>();
-    const validators = bonded?.validators || [];
+    const validators = allValidators?.validators || [];
     
     for (const v of validators) {
-      const pubkeyBase64 = v.consensus_pubkey?.key;
-      const moniker = v.description?.moniker || "Unknown";
-      if (pubkeyBase64) {
-        map.set(pubkeyBase64, moniker);
+      try {
+        // Get consensus address in bech32 format
+        const consAddr = consAddrFromPubkey(v.consensus_pubkey);
+        if (consAddr) {
+          // Convert to hex (uppercase) for matching with dump address
+          const bytes = fromBech32(consAddr).data;
+          const hexKey = toHex(bytes).toUpperCase();
+          const moniker = v.description?.moniker || "Unknown";
+          map.set(hexKey, moniker);
+        }
+      } catch (e) {
+        // Skip invalid entries
       }
     }
     return map;
-  }, [bonded]);
+  }, [allValidators]);
 
-  // 🔥 Ambil data validator dari dump_consensus_state
   const positionValidators = dumpState?.result?.round_state?.validators?.validators || [];
   
-  // 🔥 Buat fungsi getValidatorName OTOMATIS berdasarkan pubkey dari dump
   const getValidatorName = (index: number): string => {
     const validator = positionValidators[index];
     if (!validator) return `#${index + 1}`;
     
-    const pubkeyBase64 = validator.pub_key?.value;
-    if (pubkeyBase64 && pubkeyToMonikerMap.has(pubkeyBase64)) {
-      return pubkeyToMonikerMap.get(pubkeyBase64)!;
+    const hexAddr = validator.address;
+    if (hexAddr && hexToMonikerMap.has(hexAddr)) {
+      return hexToMonikerMap.get(hexAddr)!;
     }
     
-    return validator.address ? validator.address.slice(0, 12) + "..." : `#${index + 1}`;
+    return hexAddr ? hexAddr.slice(0, 12) + "..." : `#${index + 1}`;
   };
 
   const currentVoteSet = round?.height_vote_set?.[0];
@@ -143,7 +152,6 @@ function ConsensusPage() {
   const totalValidators = positionValidators.length;
   const activePrecommits = precommits.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
 
-  // Update vote history for chart
   useMemo(() => {
     if (totalValidators > 0) {
       const now = new Date();
@@ -162,13 +170,11 @@ function ConsensusPage() {
     missed: h.total - h.voted,
   }));
 
-  // Voting power data for chart
   const votingPowerData = useMemo(() => {
     const topValidators = positionValidators.slice(0, 10).map((v: any, i: number) => ({
       name: getValidatorName(i),
       power: parseInt(v?.voting_power || "0", 10),
     })).sort((a, b) => b.power - a.power);
-    
     return topValidators;
   }, [positionValidators]);
 
@@ -420,7 +426,7 @@ function ConsensusPage() {
             </div>
           </div>
 
-          {/* Vote Display - WITH VALIDATOR NAMES (AUTOMATIC) */}
+          {/* Vote Display - WITH VALIDATOR NAMES */}
           {round?.height_vote_set?.map((voteSet: any, idx: number) => (
             <Card key={idx} className="overflow-hidden bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-2xl mb-6">
               <div className="p-5">
@@ -446,7 +452,6 @@ function ConsensusPage() {
                     const isPrecommitNil = voteSet.precommits?.[i]?.toLowerCase() === "nil-vote";
                     const isProposer = i === proposerIndex;
                     
-                    // 🔥 AUTO GET VALIDATOR NAME from positionValidators
                     const validatorName = getValidatorName(i);
                     
                     let bgColor = "bg-slate-700";
@@ -490,7 +495,6 @@ function ConsensusPage() {
   );
 }
 
-// Stat Card Component
 function StatCard({ label, value, icon, gradient, stepColor }: { label: string; value: string; icon: any; gradient: string; stepColor?: string }) {
   const IconComponent = typeof icon === 'string' ? () => <span className="text-2xl font-bold">{icon}</span> : icon;
   return (
@@ -510,7 +514,6 @@ function StatCard({ label, value, icon, gradient, stepColor }: { label: string; 
   );
 }
 
-// CheckCircle component
 function CheckCircle(props: any) {
   return (
     <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
