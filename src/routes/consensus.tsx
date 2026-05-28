@@ -1,5 +1,4 @@
 // src/routes/consensus.tsx
-
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -70,10 +69,10 @@ function ConsensusPage() {
   });
 
   const round = (state as any)?.result?.round_state;
-  const heightRoundStep = round?.["height/round/step"]?.split("/") ?? [];
-  const height = heightRoundStep[0] ?? "—";
-  const roundNum = heightRoundStep[1] ?? "—";
-  const step = heightRoundStep[2] ?? "—";
+  const heightRoundStep = (round?.["height/round/step"]?.split("/")) || [];
+  const height = heightRoundStep[0] || "—";
+  const roundNum = heightRoundStep[1] || "—";
+  const step = heightRoundStep[2] || "—";
 
   const getStepName = (stepNum: string) => {
     const steps: Record<string, { name: string; icon: any; color: string }> = {
@@ -91,12 +90,13 @@ function ConsensusPage() {
 
   const onboardRate = useMemo(() => {
     let maxRate = 0;
-    for (const voteSet of round?.height_vote_set ?? []) {
-      const bitArray = voteSet.prevotes_bit_array ?? "";
+    const voteSets = round?.height_vote_set || [];
+    for (const voteSet of voteSets) {
+      const bitArray = voteSet.prevotes_bit_array || "";
       const match = bitArray.match(/(\d+)\/(\d+)/);
       if (match) {
-        const voted = parseInt(match[1]);
-        const total = parseInt(match[2]);
+        const voted = parseInt(match[1], 10);
+        const total = parseInt(match[2], 10);
         const rate = total > 0 ? (voted / total) * 100 : 0;
         if (rate > maxRate) maxRate = rate;
       }
@@ -107,24 +107,26 @@ function ConsensusPage() {
   // Map hex address to validator moniker
   const hexToVal = useMemo(() => {
     const map = new Map<string, any>();
-    const validators = bonded?.validators ?? [];
+    const validators = bonded?.validators || [];
     for (const v of validators) {
       const hex = consAddrFromPubkey(v.consensus_pubkey);
       if (hex) {
         try {
           const hexKey = toHex(fromBech32(hex).data).toUpperCase();
           map.set(hexKey, v);
-        } catch {}
+        } catch (error) {
+          // Skip invalid entries
+        }
       }
     }
     return map;
   }, [bonded]);
 
-  const positionValidators = dumpState?.result?.round_state?.validators?.validators ?? [];
+  const positionValidators = dumpState?.result?.round_state?.validators?.validators || [];
   const currentVoteSet = round?.height_vote_set?.[0];
-  const prevotes = currentVoteSet?.prevotes ?? [];
-  const precommits = currentVoteSet?.precommits ?? [];
-  const proposerIndex = round?.proposer?.index ?? 0;
+  const prevotes = currentVoteSet?.prevotes || [];
+  const precommits = currentVoteSet?.precommits || [];
+  const proposerIndex = round?.proposer?.index || 0;
 
   const activeVotes = prevotes.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
   const totalValidators = positionValidators.length;
@@ -135,7 +137,7 @@ function ConsensusPage() {
     if (totalValidators > 0) {
       const now = new Date();
       const timeStr = now.toLocaleTimeString();
-      setVoteHistory(prev => {
+      setVoteHistory((prev) => {
         const newHistory = [...prev, { time: timeStr, voted: activeVotes, total: totalValidators }];
         if (newHistory.length > 20) newHistory.shift();
         return newHistory;
@@ -143,7 +145,7 @@ function ConsensusPage() {
     }
   }, [activeVotes, totalValidators]);
 
-  const voteChartData = voteHistory.map(h => ({
+  const voteChartData = voteHistory.map((h) => ({
     time: h.time,
     voted: h.voted,
     missed: h.total - h.voted,
@@ -152,16 +154,18 @@ function ConsensusPage() {
   // Voting power distribution
   const votingPowerData = useMemo(() => {
     const topValidators = positionValidators.slice(0, 10).map((v: any, i: number) => {
-      const hexAddr = v?.address ?? "";
+      const hexAddr = v?.address || "";
       const val = hexToVal.get(hexAddr);
-      const moniker = val?.description?.moniker ?? hexAddr.slice(0, 8) || `Val${i}`;
+      const moniker = val?.description?.moniker || hexAddr.slice(0, 8) || `Val${i}`;
       return {
         name: moniker,
-        power: parseInt(v?.voting_power || "0"),
+        power: parseInt(v?.voting_power || "0", 10),
       };
-    }).sort((a, b) => b.power - a.power);
+    }).sort((a: { power: number }, b: { power: number }) => b.power - a.power);
     
-    const otherPower = positionValidators.slice(10).reduce((sum: number, v: any) => sum + parseInt(v?.voting_power || "0"), 0);
+    const otherPower = positionValidators.slice(10).reduce((sum: number, v: any) => {
+      return sum + parseInt(v?.voting_power || "0", 10);
+    }, 0);
     if (otherPower > 0) {
       topValidators.push({ name: "Others", power: otherPower });
     }
@@ -280,7 +284,10 @@ function ConsensusPage() {
                 <span className="text-slate-500 text-sm">/ {totalValidators}</span>
               </div>
               <div className="w-full bg-slate-700 rounded-full h-1.5 mt-2">
-                <div className="bg-gradient-to-r from-green-400 to-blue-500 h-1.5 rounded-full transition-all duration-300" style={{ width: `${(activeVotes / totalValidators) * 100}%` }}></div>
+                <div 
+                  className="bg-gradient-to-r from-green-400 to-blue-500 h-1.5 rounded-full transition-all duration-300" 
+                  style={{ width: `${(activeVotes / totalValidators) * 100}%` }}
+                ></div>
               </div>
             </div>
 
@@ -370,9 +377,9 @@ function ConsensusPage() {
                     const isNil = pre.toLowerCase() === "nil-vote";
                     const isPrecommitNil = voteSet.precommits?.[i]?.toLowerCase() === "nil-vote";
                     const isProposer = i === proposerIndex;
-                    const hexAddr = positionValidators[i]?.address ?? "";
+                    const hexAddr = positionValidators[i]?.address || "";
                     const val = hexToVal.get(hexAddr);
-                    const moniker = val?.description?.moniker ?? hexAddr.slice(0, 12) + "...";
+                    const moniker = val?.description?.moniker || hexAddr.slice(0, 12) + "...";
 
                     let voteColor = "bg-slate-700";
                     if (!isNil) voteColor = "bg-gradient-to-r from-green-500 to-emerald-500";
