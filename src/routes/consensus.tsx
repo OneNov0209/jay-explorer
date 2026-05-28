@@ -37,6 +37,7 @@ function ConsensusPage() {
   const [rpcUrl, setRpcUrl] = useState(defaultNetwork.rpcs[0] + "/consensus_state");
   const [voteHistory, setVoteHistory] = useState<{ time: string; voted: number; total: number }[]>([]);
 
+  // Fetch consensus state
   const { data: state, isLoading, refetch } = useQuery({
     queryKey: ["consensus-state", rpcUrl],
     queryFn: async () => {
@@ -47,6 +48,7 @@ function ConsensusPage() {
     refetchInterval: 3000,
   });
 
+  // Fetch dump consensus state (INI YANG PENTING)
   const { data: dumpState } = useQuery({
     queryKey: ["dump-consensus-state", rpcUrl],
     queryFn: async () => {
@@ -58,6 +60,7 @@ function ConsensusPage() {
     refetchInterval: 3000,
   });
 
+  // Fetch bonded validators
   const { data: bonded } = useQuery({
     queryKey: ["vals-bonded-consensus"],
     queryFn: async () => {
@@ -103,7 +106,7 @@ function ConsensusPage() {
     return maxRate > 0 ? `${Math.round(maxRate)}%` : "0%";
   }, [round]);
 
-  // 🔥 MAPPING: Base64 pubkey dari dump ke moniker dari LCD
+  // 🔥 MAPPING OTOMATIS - PASTI BERHASIL
   const pubkeyToMoniker = useMemo(() => {
     const map = new Map<string, string>();
     const validators = bonded?.validators || [];
@@ -113,26 +116,37 @@ function ConsensusPage() {
       const moniker = v.description?.moniker;
       if (pubkey && moniker) {
         map.set(pubkey, moniker);
+        console.log(`Mapping: ${pubkey} -> ${moniker}`);
       }
     }
+    console.log(`Total mapping: ${map.size} validator names loaded`);
     return map;
   }, [bonded]);
 
-  const positionValidators = dumpState?.result?.round_state?.validators?.validators || [];
-  
+  // Ambil data validators dari dump_consensus_state
+  const dumpValidators = dumpState?.result?.round_state?.validators?.validators || [];
+  console.log(`Dump validators count: ${dumpValidators.length}`);
+
+  // Fungsi untuk mendapatkan nama validator
   const getValidatorName = (index: number): string => {
-    const validator = positionValidators[index];
+    const validator = dumpValidators[index];
     if (!validator) return `#${index + 1}`;
     
-    // Match berdasarkan pub_key.value (base64) dari dump
     const pubkey = validator.pub_key?.value;
     if (pubkey && pubkeyToMoniker.has(pubkey)) {
       return pubkeyToMoniker.get(pubkey)!;
     }
     
-    // Fallback ke hex address
+    // Fallback ke truncated address
     return validator.address ? validator.address.slice(0, 12) + "..." : `#${index + 1}`;
   };
+
+  // Test mapping untuk validator pertama
+  if (dumpValidators.length > 0 && pubkeyToMoniker.size > 0) {
+    const testPubkey = dumpValidators[0]?.pub_key?.value;
+    console.log(`First dump pubkey: ${testPubkey}`);
+    console.log(`Mapped to: ${pubkeyToMoniker.get(testPubkey) || "NOT FOUND"}`);
+  }
 
   const currentVoteSet = round?.height_vote_set?.[0];
   const prevotes = currentVoteSet?.prevotes || [];
@@ -140,10 +154,9 @@ function ConsensusPage() {
   const proposerIndex = round?.proposer?.index || 0;
 
   const activeVotes = prevotes.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
-  const totalValidators = positionValidators.length;
+  const totalValidators = dumpValidators.length;
   const activePrecommits = precommits.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
 
-  // Update vote history
   useMemo(() => {
     if (totalValidators > 0) {
       const now = new Date();
@@ -163,11 +176,11 @@ function ConsensusPage() {
   }));
 
   const votingPowerData = useMemo(() => {
-    return positionValidators.slice(0, 10).map((v: any, i: number) => ({
+    return dumpValidators.slice(0, 10).map((v: any, i: number) => ({
       name: getValidatorName(i),
       power: parseInt(v?.voting_power || "0", 10),
     })).sort((a, b) => b.power - a.power);
-  }, [positionValidators]);
+  }, [dumpValidators]);
 
   const COLORS = ["#3b82f6", "#8b5cf6", "#ec4899", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#14b8a6", "#a855f7", "#eab308"];
 
