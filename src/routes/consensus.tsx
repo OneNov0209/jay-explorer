@@ -1,4 +1,4 @@
-// src/routes/consensus.tsx - FULL WORKING dengan import dari validators
+// src/routes/consensus.tsx - FULL SCRIPT MAPPING OTOMATIS
 
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -6,8 +6,6 @@ import { useMemo, useState } from "react";
 import { Card } from "@/components/shared/ui";
 import { defaultNetwork } from "@/data/networks";
 import { formatNumber } from "@/lib/format";
-import { consAddrFromPubkey } from "@/routes/validators";
-import { fromBech32, toHex } from "@cosmjs/encoding";
 import { Activity, Clock, Network, Wifi, Circle, ChevronRight, TrendingUp, BarChart3, PieChart, Zap, Award, Radio, RefreshCw } from "lucide-react";
 import {
   AreaChart,
@@ -60,7 +58,7 @@ function ConsensusPage() {
     refetchInterval: 3000,
   });
 
-  // Fetch ALL validators from LCD (bonded + unbonded)
+  // Fetch ALL validators from LCD
   const { data: allValidators } = useQuery({
     queryKey: ["all-validators"],
     queryFn: async () => {
@@ -106,41 +104,43 @@ function ConsensusPage() {
     return maxRate > 0 ? `${Math.round(maxRate)}%` : "0%";
   }, [round]);
 
-  // 🔥 MAPPING dari address HEX ke moniker menggunakan consAddrFromPubkey
-  const hexToMonikerMap = useMemo(() => {
+  // 🔥 MAPPING OTOMATIS: Base64 pubkey -> Moniker
+  const pubkeyToMonikerMap = useMemo(() => {
     const map = new Map<string, string>();
     const validators = allValidators?.validators || [];
     
     for (const v of validators) {
-      try {
-        // Get consensus address in bech32 format
-        const consAddr = consAddrFromPubkey(v.consensus_pubkey);
-        if (consAddr) {
-          // Convert to hex (uppercase) for matching with dump address
-          const bytes = fromBech32(consAddr).data;
-          const hexKey = toHex(bytes).toUpperCase();
-          const moniker = v.description?.moniker || "Unknown";
-          map.set(hexKey, moniker);
-        }
-      } catch (e) {
-        // Skip invalid entries
+      const pubkeyBase64 = v.consensus_pubkey?.key;
+      const moniker = v.description?.moniker || "Unknown";
+      if (pubkeyBase64) {
+        map.set(pubkeyBase64, moniker);
       }
     }
+    
+    console.log('Mapping size:', map.size);
+    console.log('Example mapping:', Array.from(map.entries())[0]);
+    
     return map;
   }, [allValidators]);
 
   const positionValidators = dumpState?.result?.round_state?.validators?.validators || [];
   
+  // 🔥 GET VALIDATOR NAME - LANGSUNG MATCH PUBKEY BASE64
   const getValidatorName = (index: number): string => {
     const validator = positionValidators[index];
     if (!validator) return `#${index + 1}`;
     
-    const hexAddr = validator.address;
-    if (hexAddr && hexToMonikerMap.has(hexAddr)) {
-      return hexToMonikerMap.get(hexAddr)!;
+    const pubkeyBase64 = validator.pub_key?.value;
+    if (pubkeyBase64 && pubkeyToMonikerMap.has(pubkeyBase64)) {
+      return pubkeyToMonikerMap.get(pubkeyBase64)!;
     }
     
-    return hexAddr ? hexAddr.slice(0, 12) + "..." : `#${index + 1}`;
+    // Debug: log yang gagal
+    if (pubkeyBase64) {
+      console.warn(`No match for index ${index}: ${pubkeyBase64}`);
+    }
+    
+    return validator.address ? validator.address.slice(0, 12) + "..." : `#${index + 1}`;
   };
 
   const currentVoteSet = round?.height_vote_set?.[0];
@@ -151,6 +151,12 @@ function ConsensusPage() {
   const activeVotes = prevotes.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
   const totalValidators = positionValidators.length;
   const activePrecommits = precommits.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
+
+  // Debug: log first few validators
+  if (positionValidators.length > 0 && pubkeyToMonikerMap.size > 0) {
+    console.log('First dump pubkey:', positionValidators[0]?.pub_key?.value);
+    console.log('Has mapping?', pubkeyToMonikerMap.has(positionValidators[0]?.pub_key?.value));
+  }
 
   useMemo(() => {
     if (totalValidators > 0) {
@@ -171,11 +177,10 @@ function ConsensusPage() {
   }));
 
   const votingPowerData = useMemo(() => {
-    const topValidators = positionValidators.slice(0, 10).map((v: any, i: number) => ({
+    return positionValidators.slice(0, 10).map((v: any, i: number) => ({
       name: getValidatorName(i),
       power: parseInt(v?.voting_power || "0", 10),
     })).sort((a, b) => b.power - a.power);
-    return topValidators;
   }, [positionValidators]);
 
   const COLORS = ["#3b82f6", "#8b5cf6", "#ec4899", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#14b8a6", "#a855f7", "#eab308"];
@@ -426,7 +431,7 @@ function ConsensusPage() {
             </div>
           </div>
 
-          {/* Vote Display - WITH VALIDATOR NAMES */}
+          {/* Vote Display */}
           {round?.height_vote_set?.map((voteSet: any, idx: number) => (
             <Card key={idx} className="overflow-hidden bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-2xl mb-6">
               <div className="p-5">
