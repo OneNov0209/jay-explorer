@@ -1,4 +1,5 @@
 // src/routes/consensus.tsx
+
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -33,6 +34,20 @@ export const Route = createFileRoute("/consensus")({
   }),
   component: ConsensusPage,
 });
+
+// Helper: Convert base64 pubkey to hex address
+function pubkeyToHexAddress(pubkeyBase64: string): string {
+  try {
+    const binaryString = atob(pubkeyBase64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+  } catch (e) {
+    return "";
+  }
+}
 
 function ConsensusPage() {
   const [rpcUrl, setRpcUrl] = useState(defaultNetwork.rpcs[0] + "/consensus_state");
@@ -104,21 +119,23 @@ function ConsensusPage() {
     return maxRate > 0 ? `${Math.round(maxRate)}%` : "0%";
   }, [round]);
 
-  // Map hex address to validator moniker
-  const hexToVal = useMemo(() => {
-    const map = new Map<string, any>();
+  // 🔥 FIX: Map pubkey from dump to moniker from LCD
+  const pubkeyToMoniker = useMemo(() => {
+    const map = new Map<string, string>();
     const validators = bonded?.validators || [];
+    
     for (const v of validators) {
-      const hex = consAddrFromPubkey(v.consensus_pubkey);
-      if (hex) {
-        try {
-          const hexKey = toHex(fromBech32(hex).data).toUpperCase();
-          map.set(hexKey, v);
-        } catch (error) {
-          // Skip invalid entries
-        }
+      const pubkeyBase64 = v.consensus_pubkey?.key;
+      const moniker = v.description?.moniker || "Unknown";
+      if (pubkeyBase64) {
+        // Convert to hex for matching
+        const hexKey = pubkeyToHexAddress(pubkeyBase64);
+        map.set(hexKey, moniker);
+        // Also store the original base64 as key
+        map.set(pubkeyBase64, moniker);
       }
     }
+    
     return map;
   }, [bonded]);
 
@@ -151,26 +168,39 @@ function ConsensusPage() {
     missed: h.total - h.voted,
   }));
 
-  // Voting power distribution
+  // Get moniker for a validator by index
+  const getValidatorMoniker = (index: number): string => {
+    const validator = positionValidators[index];
+    if (!validator) return `Val ${index}`;
+    
+    // Try to match by pub_key.value (base64)
+    const pubkeyBase64 = validator.pub_key?.value;
+    if (pubkeyBase64 && pubkeyToMoniker.has(pubkeyBase64)) {
+      return pubkeyToMoniker.get(pubkeyBase64)!;
+    }
+    
+    // Try to match by address (hex)
+    const hexAddr = validator.address;
+    if (hexAddr && pubkeyToMoniker.has(hexAddr)) {
+      return pubkeyToMoniker.get(hexAddr)!;
+    }
+    
+    // Fallback: return truncated address
+    return hexAddr ? hexAddr.slice(0, 12) + "..." : `Val ${index}`;
+  };
+
+  // Voting power distribution with monikers
   const votingPowerData = useMemo(() => {
     const topValidators = positionValidators.slice(0, 10).map((v: any, i: number) => {
-      const hexAddr = v?.address || "";
-      const val = hexToVal.get(hexAddr);
-      const moniker = val?.description?.moniker || hexAddr.slice(0, 8) || `Val${i}`;
+      const moniker = getValidatorMoniker(i);
       return {
         name: moniker,
         power: parseInt(v?.voting_power || "0", 10),
       };
     }).sort((a: { power: number }, b: { power: number }) => b.power - a.power);
     
-    const otherPower = positionValidators.slice(10).reduce((sum: number, v: any) => {
-      return sum + parseInt(v?.voting_power || "0", 10);
-    }, 0);
-    if (otherPower > 0) {
-      topValidators.push({ name: "Others", power: otherPower });
-    }
     return topValidators;
-  }, [positionValidators, hexToVal]);
+  }, [positionValidators]);
 
   const COLORS = ["#3b82f6", "#8b5cf6", "#ec4899", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#14b8a6", "#a855f7", "#eab308"];
 
@@ -340,7 +370,7 @@ function ConsensusPage() {
                 <BarChart data={votingPowerData} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                   <XAxis type="number" stroke="#94a3b8" fontSize={10} tick={{ fill: "#94a3b8" }} />
-                  <YAxis type="category" dataKey="name" stroke="#94a3b8" fontSize={10} tick={{ fill: "#94a3b8" }} width={80} />
+                  <YAxis type="category" dataKey="name" stroke="#94a3b8" fontSize={10} tick={{ fill: "#94a3b8" }} width={100} />
                   <Tooltip contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" }} formatter={(value: number) => value.toLocaleString()} />
                   <Bar dataKey="power" fill="#8b5cf6" radius={[0, 4, 4, 0]}>
                     {votingPowerData.map((_: any, index: number) => (
@@ -352,7 +382,7 @@ function ConsensusPage() {
             </div>
           </div>
 
-          {/* Vote Sets - Futuristik */}
+          {/* Vote Sets - With Validator Names */}
           {round?.height_vote_set?.map((voteSet: any, idx: number) => (
             <Card key={idx} className="overflow-hidden bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-2xl mb-6">
               <div className="p-5">
@@ -377,20 +407,23 @@ function ConsensusPage() {
                     const isNil = pre.toLowerCase() === "nil-vote";
                     const isPrecommitNil = voteSet.precommits?.[i]?.toLowerCase() === "nil-vote";
                     const isProposer = i === proposerIndex;
-                    const hexAddr = positionValidators[i]?.address || "";
-                    const val = hexToVal.get(hexAddr);
-                    const moniker = val?.description?.moniker || hexAddr.slice(0, 12) + "...";
-
-                    let voteColor = "bg-slate-700";
-                    if (!isNil) voteColor = "bg-gradient-to-r from-green-500 to-emerald-500";
-                    if (isNil && isProposer) voteColor = "bg-gradient-to-r from-yellow-500 to-orange-500";
-                    if (isNil && !isProposer) voteColor = "bg-gradient-to-r from-red-500 to-rose-500";
+                    
+                    // 🔥 GET VALIDATOR MONIKER (NAME)
+                    const moniker = getValidatorMoniker(i);
+                    
+                    // Determine background color based on vote status
+                    let bgColor = "bg-slate-700";
+                    if (!isNil) bgColor = "bg-gradient-to-r from-green-500 to-emerald-500";
+                    if (isNil && isProposer) bgColor = "bg-gradient-to-r from-yellow-500 to-orange-500";
+                    if (isNil && !isProposer) bgColor = "bg-gradient-to-r from-red-500 to-rose-500";
 
                     return (
                       <div key={i} className="group relative w-52 rounded-xl overflow-hidden transition-all duration-300 hover:scale-105">
-                        <div className={`relative ${voteColor} p-2 rounded-xl`}>
+                        <div className={`relative ${bgColor} p-2 rounded-xl`}>
                           <div className="flex items-center justify-between">
-                            <span className="truncate text-white text-xs font-medium" title={moniker}>{moniker}</span>
+                            <span className="truncate text-white text-xs font-medium" title={moniker}>
+                              {moniker}
+                            </span>
                             <div className="flex gap-1.5">
                               <div className="relative group/tooltip">
                                 <div className={`w-2.5 h-2.5 rounded-full ${isNil ? 'bg-red-400' : 'bg-green-400'} ${isProposer ? 'ring-2 ring-yellow-400' : ''}`} />
