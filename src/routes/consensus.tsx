@@ -1,4 +1,4 @@
-// src/routes/consensus.tsx - FULL SCRIPT MAPPING OTOMATIS
+// src/routes/consensus.tsx
 
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -58,11 +58,11 @@ function ConsensusPage() {
     refetchInterval: 3000,
   });
 
-  // Fetch ALL validators from LCD
-  const { data: allValidators } = useQuery({
-    queryKey: ["all-validators"],
+  // Fetch bonded validators from LCD
+  const { data: bonded } = useQuery({
+    queryKey: ["vals-bonded-consensus"],
     queryFn: async () => {
-      const res = await fetch(`${defaultNetwork.lcd}/cosmos/staking/v1beta1/validators?pagination.limit=200`);
+      const res = await fetch(`${defaultNetwork.lcd}/cosmos/staking/v1beta1/validators?status=BOND_STATUS_BONDED&pagination.limit=150`);
       return res.json();
     },
     staleTime: 60000,
@@ -104,10 +104,10 @@ function ConsensusPage() {
     return maxRate > 0 ? `${Math.round(maxRate)}%` : "0%";
   }, [round]);
 
-  // 🔥 MAPPING OTOMATIS: Base64 pubkey -> Moniker
+  // 🔥 MAPPING OTOMATIS: Buat Map dari base64 pubkey ke moniker
   const pubkeyToMonikerMap = useMemo(() => {
     const map = new Map<string, string>();
-    const validators = allValidators?.validators || [];
+    const validators = bonded?.validators || [];
     
     for (const v of validators) {
       const pubkeyBase64 = v.consensus_pubkey?.key;
@@ -116,16 +116,11 @@ function ConsensusPage() {
         map.set(pubkeyBase64, moniker);
       }
     }
-    
-    console.log('Mapping size:', map.size);
-    console.log('Example mapping:', Array.from(map.entries())[0]);
-    
     return map;
-  }, [allValidators]);
+  }, [bonded]);
 
   const positionValidators = dumpState?.result?.round_state?.validators?.validators || [];
   
-  // 🔥 GET VALIDATOR NAME - LANGSUNG MATCH PUBKEY BASE64
   const getValidatorName = (index: number): string => {
     const validator = positionValidators[index];
     if (!validator) return `#${index + 1}`;
@@ -133,11 +128,6 @@ function ConsensusPage() {
     const pubkeyBase64 = validator.pub_key?.value;
     if (pubkeyBase64 && pubkeyToMonikerMap.has(pubkeyBase64)) {
       return pubkeyToMonikerMap.get(pubkeyBase64)!;
-    }
-    
-    // Debug: log yang gagal
-    if (pubkeyBase64) {
-      console.warn(`No match for index ${index}: ${pubkeyBase64}`);
     }
     
     return validator.address ? validator.address.slice(0, 12) + "..." : `#${index + 1}`;
@@ -151,12 +141,6 @@ function ConsensusPage() {
   const activeVotes = prevotes.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
   const totalValidators = positionValidators.length;
   const activePrecommits = precommits.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
-
-  // Debug: log first few validators
-  if (positionValidators.length > 0 && pubkeyToMonikerMap.size > 0) {
-    console.log('First dump pubkey:', positionValidators[0]?.pub_key?.value);
-    console.log('Has mapping?', pubkeyToMonikerMap.has(positionValidators[0]?.pub_key?.value));
-  }
 
   useMemo(() => {
     if (totalValidators > 0) {
