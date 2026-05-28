@@ -35,7 +35,7 @@ export const Route = createFileRoute("/consensus")({
   component: ConsensusPage,
 });
 
-// Helper: Convert base64 pubkey to hex address
+// Helper: Convert base64 pubkey to hex address (untuk mapping)
 function pubkeyToHexAddress(pubkeyBase64: string): string {
   try {
     const binaryString = atob(pubkeyBase64);
@@ -53,6 +53,7 @@ function ConsensusPage() {
   const [rpcUrl, setRpcUrl] = useState(defaultNetwork.rpcs[0] + "/consensus_state");
   const [voteHistory, setVoteHistory] = useState<{ time: string; voted: number; total: number }[]>([]);
 
+  // 1. Fetch consensus state
   const { data: state, isLoading, refetch } = useQuery({
     queryKey: ["consensus-state", rpcUrl],
     queryFn: async () => {
@@ -63,6 +64,7 @@ function ConsensusPage() {
     refetchInterval: 3000,
   });
 
+  // 2. Fetch dump consensus state (berisi daftar validator dengan hex address & base64 pubkey)
   const { data: dumpState } = useQuery({
     queryKey: ["dump-consensus-state", rpcUrl],
     queryFn: async () => {
@@ -74,6 +76,7 @@ function ConsensusPage() {
     refetchInterval: 3000,
   });
 
+  // 3. Fetch bonded validators dari LCD (berisi moniker & consensus_pubkey base64)
   const { data: bonded } = useQuery({
     queryKey: ["vals-bonded-consensus"],
     queryFn: async () => {
@@ -119,8 +122,8 @@ function ConsensusPage() {
     return maxRate > 0 ? `${Math.round(maxRate)}%` : "0%";
   }, [round]);
 
-  // 🔥 FIX: Map pubkey from dump to moniker from LCD
-  const pubkeyToMoniker = useMemo(() => {
+  // 🔥 MAPPING: Buat dictionary dari LCD validators (base64 pubkey -> moniker)
+  const pubkeyToMonikerMap = useMemo(() => {
     const map = new Map<string, string>();
     const validators = bonded?.validators || [];
     
@@ -128,17 +131,18 @@ function ConsensusPage() {
       const pubkeyBase64 = v.consensus_pubkey?.key;
       const moniker = v.description?.moniker || "Unknown";
       if (pubkeyBase64) {
-        // Convert to hex for matching
+        // Simpan dengan key base64 asli
+        map.set(pubkeyBase64, moniker);
+        // Simpan juga dengan key hex (untuk berjaga-jaga)
         const hexKey = pubkeyToHexAddress(pubkeyBase64);
         map.set(hexKey, moniker);
-        // Also store the original base64 as key
-        map.set(pubkeyBase64, moniker);
       }
     }
     
     return map;
   }, [bonded]);
 
+  // Dapatkan daftar validator dari dump_consensus_state
   const positionValidators = dumpState?.result?.round_state?.validators?.validators || [];
   const currentVoteSet = round?.height_vote_set?.[0];
   const prevotes = currentVoteSet?.prevotes || [];
@@ -149,7 +153,28 @@ function ConsensusPage() {
   const totalValidators = positionValidators.length;
   const activePrecommits = precommits.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
 
-  // Update vote history for chart
+  // 🎯 FUNGSI UTAMA: Mendapatkan nama validator berdasarkan index
+  const getValidatorName = (index: number): string => {
+    const validator = positionValidators[index];
+    if (!validator) return `Validator ${index + 1}`;
+    
+    // Coba cari moniker berdasarkan pub_key.value (base64)
+    const pubkeyBase64 = validator.pub_key?.value;
+    if (pubkeyBase64 && pubkeyToMonikerMap.has(pubkeyBase64)) {
+      return pubkeyToMonikerMap.get(pubkeyBase64)!;
+    }
+    
+    // Coba cari berdasarkan address (hex)
+    const hexAddr = validator.address;
+    if (hexAddr && pubkeyToMonikerMap.has(hexAddr)) {
+      return pubkeyToMonikerMap.get(hexAddr)!;
+    }
+    
+    // Fallback: tampilkan address yang dipotong
+    return hexAddr ? `${hexAddr.slice(0, 12)}...` : `Val ${index + 1}`;
+  };
+
+  // Update vote history untuk chart
   useMemo(() => {
     if (totalValidators > 0) {
       const now = new Date();
@@ -168,36 +193,12 @@ function ConsensusPage() {
     missed: h.total - h.voted,
   }));
 
-  // Get moniker for a validator by index
-  const getValidatorMoniker = (index: number): string => {
-    const validator = positionValidators[index];
-    if (!validator) return `Val ${index}`;
-    
-    // Try to match by pub_key.value (base64)
-    const pubkeyBase64 = validator.pub_key?.value;
-    if (pubkeyBase64 && pubkeyToMoniker.has(pubkeyBase64)) {
-      return pubkeyToMoniker.get(pubkeyBase64)!;
-    }
-    
-    // Try to match by address (hex)
-    const hexAddr = validator.address;
-    if (hexAddr && pubkeyToMoniker.has(hexAddr)) {
-      return pubkeyToMoniker.get(hexAddr)!;
-    }
-    
-    // Fallback: return truncated address
-    return hexAddr ? hexAddr.slice(0, 12) + "..." : `Val ${index}`;
-  };
-
-  // Voting power distribution with monikers
+  // Data untuk bar chart (top 10 validator berdasarkan voting power)
   const votingPowerData = useMemo(() => {
-    const topValidators = positionValidators.slice(0, 10).map((v: any, i: number) => {
-      const moniker = getValidatorMoniker(i);
-      return {
-        name: moniker,
-        power: parseInt(v?.voting_power || "0", 10),
-      };
-    }).sort((a: { power: number }, b: { power: number }) => b.power - a.power);
+    const topValidators = positionValidators.slice(0, 10).map((v: any, i: number) => ({
+      name: getValidatorName(i),
+      power: parseInt(v?.voting_power || "0", 10),
+    })).sort((a, b) => b.power - a.power);
     
     return topValidators;
   }, [positionValidators]);
@@ -382,7 +383,7 @@ function ConsensusPage() {
             </div>
           </div>
 
-          {/* Vote Sets - With Validator Names */}
+          {/* Vote Sets - WITH VALIDATOR NAMES */}
           {round?.height_vote_set?.map((voteSet: any, idx: number) => (
             <Card key={idx} className="overflow-hidden bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-2xl mb-6">
               <div className="p-5">
@@ -408,10 +409,9 @@ function ConsensusPage() {
                     const isPrecommitNil = voteSet.precommits?.[i]?.toLowerCase() === "nil-vote";
                     const isProposer = i === proposerIndex;
                     
-                    // 🔥 GET VALIDATOR MONIKER (NAME)
-                    const moniker = getValidatorMoniker(i);
+                    // 🔥 DAPATKAN NAMA VALIDATOR
+                    const validatorName = getValidatorName(i);
                     
-                    // Determine background color based on vote status
                     let bgColor = "bg-slate-700";
                     if (!isNil) bgColor = "bg-gradient-to-r from-green-500 to-emerald-500";
                     if (isNil && isProposer) bgColor = "bg-gradient-to-r from-yellow-500 to-orange-500";
@@ -421,16 +421,18 @@ function ConsensusPage() {
                       <div key={i} className="group relative w-52 rounded-xl overflow-hidden transition-all duration-300 hover:scale-105">
                         <div className={`relative ${bgColor} p-2 rounded-xl`}>
                           <div className="flex items-center justify-between">
-                            <span className="truncate text-white text-xs font-medium" title={moniker}>
-                              {moniker}
+                            <span className="truncate text-white text-xs font-medium" title={validatorName}>
+                              {validatorName}
                             </span>
                             <div className="flex gap-1.5">
+                              {/* Prevote tooltip */}
                               <div className="relative group/tooltip">
                                 <div className={`w-2.5 h-2.5 rounded-full ${isNil ? 'bg-red-400' : 'bg-green-400'} ${isProposer ? 'ring-2 ring-yellow-400' : ''}`} />
                                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-slate-900 text-white text-xs rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
                                   Prevote: {pre?.slice(0, 30)}...
                                 </div>
                               </div>
+                              {/* Precommit tooltip */}
                               <div className="relative group/tooltip">
                                 <div className={`w-2.5 h-2.5 rounded-full ${isPrecommitNil ? 'bg-red-400' : 'bg-green-400'}`} />
                                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-slate-900 text-white text-xs rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
