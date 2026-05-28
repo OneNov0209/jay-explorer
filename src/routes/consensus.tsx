@@ -8,7 +8,7 @@ import { defaultNetwork } from "@/data/networks";
 import { formatNumber } from "@/lib/format";
 import { consAddrFromPubkey } from "@/routes/validators";
 import { fromBech32, toHex } from "@cosmjs/encoding";
-import { Activity, Clock, Network, Wifi, Circle, ChevronRight, TrendingUp, BarChart3, PieChart, Zap, Award, Radio } from "lucide-react";
+import { Activity, Clock, Network, Wifi, Circle, ChevronRight, TrendingUp, BarChart3, PieChart, Zap, Award, Radio, RefreshCw } from "lucide-react";
 import {
   AreaChart,
   Area,
@@ -35,7 +35,7 @@ export const Route = createFileRoute("/consensus")({
   component: ConsensusPage,
 });
 
-// Helper: Convert base64 pubkey to hex address (untuk mapping)
+// Helper: Convert base64 pubkey to hex address
 function pubkeyToHexAddress(pubkeyBase64: string): string {
   try {
     const binaryString = atob(pubkeyBase64);
@@ -53,7 +53,7 @@ function ConsensusPage() {
   const [rpcUrl, setRpcUrl] = useState(defaultNetwork.rpcs[0] + "/consensus_state");
   const [voteHistory, setVoteHistory] = useState<{ time: string; voted: number; total: number }[]>([]);
 
-  // 1. Fetch consensus state
+  // Fetch consensus state
   const { data: state, isLoading, refetch } = useQuery({
     queryKey: ["consensus-state", rpcUrl],
     queryFn: async () => {
@@ -64,7 +64,7 @@ function ConsensusPage() {
     refetchInterval: 3000,
   });
 
-  // 2. Fetch dump consensus state (berisi daftar validator dengan hex address & base64 pubkey)
+  // Fetch dump consensus state
   const { data: dumpState } = useQuery({
     queryKey: ["dump-consensus-state", rpcUrl],
     queryFn: async () => {
@@ -76,7 +76,7 @@ function ConsensusPage() {
     refetchInterval: 3000,
   });
 
-  // 3. Fetch bonded validators dari LCD (berisi moniker & consensus_pubkey base64)
+  // Fetch bonded validators from LCD
   const { data: bonded } = useQuery({
     queryKey: ["vals-bonded-consensus"],
     queryFn: async () => {
@@ -122,7 +122,7 @@ function ConsensusPage() {
     return maxRate > 0 ? `${Math.round(maxRate)}%` : "0%";
   }, [round]);
 
-  // 🔥 MAPPING: Buat dictionary dari LCD validators (base64 pubkey -> moniker)
+  // Build map: pubkey base64 -> moniker
   const pubkeyToMonikerMap = useMemo(() => {
     const map = new Map<string, string>();
     const validators = bonded?.validators || [];
@@ -131,18 +131,14 @@ function ConsensusPage() {
       const pubkeyBase64 = v.consensus_pubkey?.key;
       const moniker = v.description?.moniker || "Unknown";
       if (pubkeyBase64) {
-        // Simpan dengan key base64 asli
         map.set(pubkeyBase64, moniker);
-        // Simpan juga dengan key hex (untuk berjaga-jaga)
         const hexKey = pubkeyToHexAddress(pubkeyBase64);
         map.set(hexKey, moniker);
       }
     }
-    
     return map;
   }, [bonded]);
 
-  // Dapatkan daftar validator dari dump_consensus_state
   const positionValidators = dumpState?.result?.round_state?.validators?.validators || [];
   const currentVoteSet = round?.height_vote_set?.[0];
   const prevotes = currentVoteSet?.prevotes || [];
@@ -153,28 +149,20 @@ function ConsensusPage() {
   const totalValidators = positionValidators.length;
   const activePrecommits = precommits.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
 
-  // 🎯 FUNGSI UTAMA: Mendapatkan nama validator berdasarkan index
+  // Get validator name by index
   const getValidatorName = (index: number): string => {
     const validator = positionValidators[index];
-    if (!validator) return `Validator ${index + 1}`;
+    if (!validator) return `#${index + 1}`;
     
-    // Coba cari moniker berdasarkan pub_key.value (base64)
     const pubkeyBase64 = validator.pub_key?.value;
     if (pubkeyBase64 && pubkeyToMonikerMap.has(pubkeyBase64)) {
       return pubkeyToMonikerMap.get(pubkeyBase64)!;
     }
     
-    // Coba cari berdasarkan address (hex)
-    const hexAddr = validator.address;
-    if (hexAddr && pubkeyToMonikerMap.has(hexAddr)) {
-      return pubkeyToMonikerMap.get(hexAddr)!;
-    }
-    
-    // Fallback: tampilkan address yang dipotong
-    return hexAddr ? `${hexAddr.slice(0, 12)}...` : `Val ${index + 1}`;
+    return validator.address ? validator.address.slice(0, 12) + "..." : `#${index + 1}`;
   };
 
-  // Update vote history untuk chart
+  // Update vote history for chart
   useMemo(() => {
     if (totalValidators > 0) {
       const now = new Date();
@@ -193,7 +181,7 @@ function ConsensusPage() {
     missed: h.total - h.voted,
   }));
 
-  // Data untuk bar chart (top 10 validator berdasarkan voting power)
+  // Voting power data for chart
   const votingPowerData = useMemo(() => {
     const topValidators = positionValidators.slice(0, 10).map((v: any, i: number) => ({
       name: getValidatorName(i),
@@ -271,7 +259,7 @@ function ConsensusPage() {
             onClick={() => refetch()}
             className="bg-slate-800/80 backdrop-blur-sm border border-slate-700 hover:bg-slate-700 transition-all text-white rounded-xl px-4 py-2 text-sm font-medium flex items-center gap-2"
           >
-            <Activity className="h-4 w-4" /> Refresh
+            <RefreshCw className="h-4 w-4" /> Refresh
           </button>
         </div>
       </div>
@@ -334,6 +322,7 @@ function ConsensusPage() {
 
           {/* Charts Section */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            {/* Area Chart - Vote History */}
             <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 p-5">
               <div className="flex items-center gap-2 mb-4">
                 <TrendingUp className="h-5 w-5 text-blue-400" />
@@ -362,6 +351,7 @@ function ConsensusPage() {
               </ResponsiveContainer>
             </div>
 
+            {/* Bar Chart - Top Validators */}
             <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 p-5">
               <div className="flex items-center gap-2 mb-4">
                 <BarChart3 className="h-5 w-5 text-purple-400" />
@@ -383,7 +373,75 @@ function ConsensusPage() {
             </div>
           </div>
 
-          {/* Vote Sets - WITH VALIDATOR NAMES */}
+          {/* Pie Chart + Live Status */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <PieChart className="h-5 w-5 text-pink-400" />
+                <h3 className="text-white font-semibold">Current Round Vote Distribution</h3>
+              </div>
+              <ResponsiveContainer width="100%" height={300}>
+                <RePieChart>
+                  <Pie
+                    data={stepDistribution}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={2}
+                    dataKey="value"
+                  >
+                    {stepDistribution.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" }}
+                    formatter={(value: number) => `${value} votes`}
+                  />
+                  <Legend wrapperStyle={{ color: "#cbd5e1" }} />
+                </RePieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Activity className="h-5 w-5 text-green-400 animate-pulse" />
+                <h3 className="text-white font-semibold">Live Voting Status</h3>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-slate-400">Prevotes</span>
+                    <span className="text-white">{activeVotes} / {totalValidators}</span>
+                  </div>
+                  <div className="w-full bg-slate-700 rounded-full h-2">
+                    <div className="bg-gradient-to-r from-orange-500 to-yellow-500 h-2 rounded-full transition-all duration-300" style={{ width: `${(activeVotes / totalValidators) * 100}%` }}></div>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-slate-400">Precommits</span>
+                    <span className="text-white">{activePrecommits} / {totalValidators}</span>
+                  </div>
+                  <div className="w-full bg-slate-700 rounded-full h-2">
+                    <div className="bg-gradient-to-r from-green-500 to-emerald-500 h-2 rounded-full transition-all duration-300" style={{ width: `${(activePrecommits / totalValidators) * 100}%` }}></div>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-slate-400">Consensus Progress</span>
+                    <span className="text-white">{onboardRate}</span>
+                  </div>
+                  <div className="w-full bg-slate-700 rounded-full h-2">
+                    <div className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300" style={{ width: onboardRate }}></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Vote Display - With Validator Names */}
           {round?.height_vote_set?.map((voteSet: any, idx: number) => (
             <Card key={idx} className="overflow-hidden bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-2xl mb-6">
               <div className="p-5">
@@ -409,7 +467,7 @@ function ConsensusPage() {
                     const isPrecommitNil = voteSet.precommits?.[i]?.toLowerCase() === "nil-vote";
                     const isProposer = i === proposerIndex;
                     
-                    // 🔥 DAPATKAN NAMA VALIDATOR
+                    // 🔥 GET VALIDATOR NAME
                     const validatorName = getValidatorName(i);
                     
                     let bgColor = "bg-slate-700";
@@ -425,14 +483,12 @@ function ConsensusPage() {
                               {validatorName}
                             </span>
                             <div className="flex gap-1.5">
-                              {/* Prevote tooltip */}
                               <div className="relative group/tooltip">
                                 <div className={`w-2.5 h-2.5 rounded-full ${isNil ? 'bg-red-400' : 'bg-green-400'} ${isProposer ? 'ring-2 ring-yellow-400' : ''}`} />
                                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-slate-900 text-white text-xs rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
                                   Prevote: {pre?.slice(0, 30)}...
                                 </div>
                               </div>
-                              {/* Precommit tooltip */}
                               <div className="relative group/tooltip">
                                 <div className={`w-2.5 h-2.5 rounded-full ${isPrecommitNil ? 'bg-red-400' : 'bg-green-400'}`} />
                                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-slate-900 text-white text-xs rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
