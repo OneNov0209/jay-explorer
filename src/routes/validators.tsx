@@ -5,7 +5,7 @@ import { lcd, safe } from "@/lib/cosmos";
 import { defaultNetwork } from "@/data/networks";
 import { Card, Badge, Skeleton } from "@/components/shared/ui";
 import { formatAmount, pct, shorten } from "@/lib/format";
-import { Search, Shield, TrendingUp, TrendingDown } from "lucide-react";
+import { Search, Shield, TrendingUp, TrendingDown, Percent } from "lucide-react";
 import { useKeybaseAvatar } from "@/hooks/use-keybase";
 import { fromBase64, toBech32 } from "@cosmjs/encoding";
 import { Sha256 } from "@cosmjs/crypto";
@@ -65,7 +65,20 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
     queryFn: () => safe(lcd.slashingParams()),
   });
 
+  // Fetch annual provisions & distribution params untuk hitung APR
+  const { data: ap } = useQuery({
+    queryKey: ["annual-provisions"],
+    queryFn: () => safe(lcd.annualProvisions()),
+  });
+  const { data: distParams } = useQuery({
+    queryKey: ["dist-params"],
+    queryFn: () => safe(lcd.distributionParams()),
+  });
+
   const signedWindow = Number(slashingParams?.params?.signed_blocks_window ?? 10000);
+  const totalBonded = Number(pool?.pool?.bonded_tokens ?? 0);
+  const annualProv = Number(ap?.annual_provisions ?? 0);
+  const commTax = Number(distParams?.params?.community_tax ?? 0);
 
   const signMap = useMemo(() => {
     const m = new Map<string, { missed: number; jailedUntil?: string }>();
@@ -117,8 +130,6 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
       : sorted;
   }, [bonded, unbonded, unbonding, filter, q, signMap, signedWindow]);
 
-  const totalBonded = Number(pool?.pool?.bonded_tokens ?? 0);
-
   // 24h changes logic
   useEffect(() => {
     if (typeof window === "undefined" || list.length === 0) return;
@@ -145,7 +156,6 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
         newChanges.set(operatorAddr, 0);
       }
 
-      // Simpan data hari ini (maks 2 entry: hari ini + kemarin)
       history[operatorAddr] = [
         { tokens: v.tokens, date: today },
         ...validatorHistory.filter((h) => h.date === today).slice(0, 0),
@@ -204,6 +214,7 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
                 <th className="text-left px-5 py-3 font-medium">#</th>
                 <th className="text-left px-5 py-3 font-medium">Moniker</th>
                 <th className="text-right px-5 py-3 font-medium">Voting Power</th>
+                <th className="text-right px-5 py-3 font-medium">APR</th>
                 <th className="text-right px-5 py-3 font-medium">24h Changes</th>
                 <th className="text-right px-5 py-3 font-medium">Commission</th>
                 <th className="text-right px-5 py-3 font-medium">Uptime</th>
@@ -214,7 +225,7 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
               {l1
                 ? Array.from({ length: 8 }).map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={7} className="px-5 py-3">
+                      <td colSpan={8} className="px-5 py-3">
                         <Skeleton className="h-5 w-full" />
                       </td>
                     </tr>
@@ -234,6 +245,14 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
                         ? Math.max(0, 1 - missed / signedWindow)
                         : null;
                     const change = changes.get(v.operator_address) || 0;
+
+                    // Hitung APR per validator
+                    const commRate = Number(v.commission?.commission_rates?.rate ?? 0);
+                    const apr =
+                      totalBonded > 0
+                        ? ((annualProv * (1 - commTax) * (1 - commRate)) / totalBonded) * 100
+                        : 0;
+
                     return (
                       <tr
                         key={v.operator_address}
@@ -264,6 +283,12 @@ export function ValidatorsPage({ initialFilter = "active" }: { initialFilter?: F
                         </td>
                         <td className="px-5 py-3 text-right font-mono text-xs">
                           {formatAmount(tokens, { precision: 0 })}
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          <span className="text-xs font-mono text-success inline-flex items-center gap-1">
+                            <Percent className="h-3 w-3" />
+                            {apr.toFixed(2)}%
+                          </span>
                         </td>
                         <td className="px-5 py-3 text-right text-xs">
                           {change !== 0 ? (
