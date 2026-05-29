@@ -63,7 +63,8 @@ function ConsensusPage() {
   const { data: bonded } = useQuery({
     queryKey: ["vals-bonded-consensus"],
     queryFn: async () => {
-      const res = await fetch(`${defaultNetwork.lcd}/cosmos/staking/v1beta1/validators?status=BOND_STATUS_BONDED&pagination.limit=150`);
+      const lcdUrl = defaultNetwork.apis?.[0] || defaultNetwork.lcd;
+      const res = await fetch(`${lcdUrl}/cosmos/staking/v1beta1/validators?status=BOND_STATUS_BONDED&pagination.limit=200`);
       return res.json();
     },
     staleTime: 60000,
@@ -105,15 +106,15 @@ function ConsensusPage() {
     return maxRate > 0 ? `${Math.round(maxRate)}%` : "0%";
   }, [round]);
 
-  // 🔥 INI KUNCI: Mapping hex address ke validator moniker (DARI KODE AWAL ANDA YANG BERHASIL)
+  // Mapping hex address → validator moniker
   const hexToVal = useMemo(() => {
     const map = new Map<string, any>();
     const validators = bonded?.validators || [];
     for (const v of validators) {
-      const hex = consAddrFromPubkey(v.consensus_pubkey);
-      if (hex) {
+      const valcons = consAddrFromPubkey(v.consensus_pubkey);
+      if (valcons) {
         try {
-          const hexKey = toHex(fromBech32(hex).data).toUpperCase();
+          const hexKey = toHex(fromBech32(valcons).data).toUpperCase();
           map.set(hexKey, v);
         } catch {}
       }
@@ -123,19 +124,20 @@ function ConsensusPage() {
 
   const positionValidators = dumpState?.result?.round_state?.validators?.validators || [];
   
+  // Dapatkan nama validator dari index posisi — tampilkan MONIKER, bukan hex
   const getValidatorName = (index: number): string => {
     const validator = positionValidators[index];
-    if (!validator) return `#${index + 1}`;
+    if (!validator) return `Validator #${index + 1}`;
     
     const hexAddr = validator.address;
     const val = hexToVal.get(hexAddr);
-    const moniker = val?.description?.moniker;
     
-    if (moniker) {
-      return moniker;
+    if (val?.description?.moniker) {
+      return val.description.moniker;
     }
     
-    return hexAddr ? hexAddr.slice(0, 12) + "..." : `#${index + 1}`;
+    // Fallback ke hex pendek kalau gak ketemu
+    return hexAddr ? hexAddr.slice(0, 10) + "..." : `Validator #${index + 1}`;
   };
 
   const currentVoteSet = round?.height_vote_set?.[0];
@@ -171,7 +173,7 @@ function ConsensusPage() {
       name: getValidatorName(i),
       power: parseInt(v?.voting_power || "0", 10),
     })).sort((a, b) => b.power - a.power);
-  }, [positionValidators]);
+  }, [positionValidators, hexToVal]);
 
   const COLORS = ["#3b82f6", "#8b5cf6", "#ec4899", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#14b8a6", "#a855f7", "#eab308"];
 
@@ -287,7 +289,7 @@ function ConsensusPage() {
               <div className="w-full bg-slate-700 rounded-full h-1.5 mt-2">
                 <div 
                   className="bg-gradient-to-r from-green-400 to-blue-500 h-1.5 rounded-full transition-all duration-300" 
-                  style={{ width: `${(activeVotes / totalValidators) * 100}%` }}
+                  style={{ width: `${totalValidators > 0 ? (activeVotes / totalValidators) * 100 : 0}%` }}
                 ></div>
               </div>
             </div>
@@ -396,7 +398,7 @@ function ConsensusPage() {
                     <span className="text-white">{activeVotes} / {totalValidators}</span>
                   </div>
                   <div className="w-full bg-slate-700 rounded-full h-2">
-                    <div className="bg-gradient-to-r from-orange-500 to-yellow-500 h-2 rounded-full transition-all duration-300" style={{ width: `${(activeVotes / totalValidators) * 100}%` }}></div>
+                    <div className="bg-gradient-to-r from-orange-500 to-yellow-500 h-2 rounded-full transition-all duration-300" style={{ width: `${totalValidators > 0 ? (activeVotes / totalValidators) * 100 : 0}%` }}></div>
                   </div>
                 </div>
                 <div>
@@ -405,7 +407,7 @@ function ConsensusPage() {
                     <span className="text-white">{activePrecommits} / {totalValidators}</span>
                   </div>
                   <div className="w-full bg-slate-700 rounded-full h-2">
-                    <div className="bg-gradient-to-r from-green-500 to-emerald-500 h-2 rounded-full transition-all duration-300" style={{ width: `${(activePrecommits / totalValidators) * 100}%` }}></div>
+                    <div className="bg-gradient-to-r from-green-500 to-emerald-500 h-2 rounded-full transition-all duration-300" style={{ width: `${totalValidators > 0 ? (activePrecommits / totalValidators) * 100 : 0}%` }}></div>
                   </div>
                 </div>
                 <div>
@@ -421,7 +423,7 @@ function ConsensusPage() {
             </div>
           </div>
 
-          {/* Vote Display */}
+          {/* Vote Display — Menampilkan nama validator, bukan hex */}
           {round?.height_vote_set?.map((voteSet: any, idx: number) => (
             <Card key={idx} className="overflow-hidden bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-2xl mb-6">
               <div className="p-5">
@@ -443,11 +445,11 @@ function ConsensusPage() {
 
                 <div className="flex flex-wrap gap-2 max-h-[600px] overflow-y-auto">
                   {voteSet.prevotes?.map((pre: string, i: number) => {
-                    const isNil = pre.toLowerCase() === "nil-vote";
+                    const isNil = pre?.toLowerCase() === "nil-vote";
                     const isPrecommitNil = voteSet.precommits?.[i]?.toLowerCase() === "nil-vote";
                     const isProposer = i === proposerIndex;
                     
-                    // 🔥 NAMA VALIDATOR DARI MAPPING YANG SUDAH BERHASIL
+                    // 🔥 NAMA VALIDATOR ASLI, BUKAN HEX
                     const validatorName = getValidatorName(i);
                     
                     let bgColor = "bg-slate-700";
