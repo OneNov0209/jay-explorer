@@ -86,6 +86,11 @@ export const jayNetwork: NetworkConfig = {
       rpc: "https://pixture.thejaynetwork.com/rpc",
       rest: "https://pixture.thejaynetwork.com/rest",
     },
+    {
+      name: "cosmos-directory",
+      rpc: "https://rpc.cosmos.directory/thejaynetwork",
+      rest: "https://rest.cosmos.directory/thejaynetwork",
+    },
   ],
   chainId: "thejaynetwork",
   denom: "ujay",
