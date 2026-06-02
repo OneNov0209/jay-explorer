@@ -62,7 +62,7 @@ export const jayNetwork: NetworkConfig = {
   rpcs: [
     "https://rpc-jay.onenov.xyz",
     "https://rpc-jayn.winnode.xyz",
-    "https://pixture.thejaynetwork.com/rpc/",
+    "https://pixture.thejaynetwork.com/rpc",
   ],
   apis: [
     "https://api-jay.onenov.xyz",
@@ -82,25 +82,9 @@ export const jayNetwork: NetworkConfig = {
       grpc: "https://grpc-jayn.winnode.xyz",
     },
     {
-      name: "jay-validator-1",
-      rpc: "http://152.53.195.5:26657",
-      rest: "http://152.53.195.5:1317",
-      grpc: "152.53.195.5:9090",
-      p2p: "152.53.195.5:26656",
-    },
-    {
-      name: "jay-validator-2",
-      rpc: "http://152.53.195.105:26657",
-      rest: "http://152.53.195.105:1317",
-      grpc: "152.53.195.105:9090",
-      p2p: "152.53.195.105:26656",
-    },
-    {
-      name: "jay-validator-3",
-      rpc: "http://152.53.194.128:26657",
-      rest: "http://152.53.194.128:1317",
-      grpc: "152.53.194.128:9090",
-      p2p: "152.53.194.128:26656",
+      name: "jay-official",
+      rpc: "https://pixture.thejaynetwork.com/rpc",
+      rest: "https://pixture.thejaynetwork.com/rest",
     },
   ],
   chainId: "thejaynetwork",
