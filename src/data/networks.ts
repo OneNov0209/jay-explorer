@@ -63,11 +63,13 @@ export const jayNetwork: NetworkConfig = {
     "https://rpc-jay.onenov.xyz",
     "https://rpc-jayn.winnode.xyz",
     "https://pixture.thejaynetwork.com/rpc",
+    "https://rpc.cosmos.directory/thejaynetwork",
   ],
   apis: [
     "https://api-jay.onenov.xyz",
     "https://api-jayn.winnode.xyz",
     "https://pixture.thejaynetwork.com/rest",
+    "https://rest.cosmos.directory/thejaynetwork",
   ],
   endpoints: [
     {
