@@ -84,7 +84,7 @@ function ConsensusPage() {
       "3": { name: "Precommit", icon: Award, color: "text-purple-400" },
       "4": { name: "Commit", icon: CheckCircle, color: "text-green-400" },
     };
-    return steps[stepNum] || { name: `Step ${stepNum}`, icon: Activity, color: "text-gray-400" };
+    return steps[stepNum] || { name: `Step ${stepNum}`, icon: Activity, color: "text-muted-foreground" };
   };
 
   const stepInfo = getStepName(step);
@@ -106,7 +106,6 @@ function ConsensusPage() {
     return maxRate > 0 ? `${Math.round(maxRate)}%` : "0%";
   }, [round]);
 
-  // Mapping hex address → validator moniker
   const hexToVal = useMemo(() => {
     const map = new Map<string, any>();
     const validators = bonded?.validators || [];
@@ -123,20 +122,18 @@ function ConsensusPage() {
   }, [bonded]);
 
   const positionValidators = dumpState?.result?.round_state?.validators?.validators || [];
-  
-  // Dapatkan nama validator dari index posisi — tampilkan MONIKER, bukan hex
+
   const getValidatorName = (index: number): string => {
     const validator = positionValidators[index];
     if (!validator) return `Validator #${index + 1}`;
-    
+
     const hexAddr = validator.address;
     const val = hexToVal.get(hexAddr);
-    
+
     if (val?.description?.moniker) {
       return val.description.moniker;
     }
-    
-    // Fallback ke hex pendek kalau gak ketemu
+
     return hexAddr ? hexAddr.slice(0, 10) + "..." : `Validator #${index + 1}`;
   };
 
@@ -149,7 +146,6 @@ function ConsensusPage() {
   const totalValidators = positionValidators.length;
   const activePrecommits = precommits.filter((v: string) => v?.toLowerCase() !== "nil-vote").length;
 
-  // Update vote history for chart
   useMemo(() => {
     if (totalValidators > 0) {
       const now = new Date();
@@ -186,42 +182,39 @@ function ConsensusPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
+      <div className="space-y-6">
         <div className="animate-pulse">
-          <div className="h-12 w-64 bg-slate-800/50 rounded-lg mb-6"></div>
+          <div className="h-12 w-64 bg-muted rounded-lg mb-6"></div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-32 bg-slate-800/50 rounded-2xl"></div>
+              <div key={i} className="h-32 bg-muted rounded-2xl"></div>
             ))}
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            <div className="h-80 bg-slate-800/50 rounded-2xl"></div>
-            <div className="h-80 bg-slate-800/50 rounded-2xl"></div>
+            <div className="h-80 bg-muted rounded-2xl"></div>
+            <div className="h-80 bg-muted rounded-2xl"></div>
           </div>
-          <div className="h-96 bg-slate-800/50 rounded-2xl"></div>
+          <div className="h-96 bg-muted rounded-2xl"></div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-7xl">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center flex-wrap gap-4 mb-8">
-        <div className="flex items-center gap-3">
-          <div className="bg-gradient-to-r from-blue-500 to-purple-500 p-2 rounded-xl">
-            <Network className="h-6 w-6 text-white" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-bold text-white">Consensus State</h1>
-            <p className="text-slate-400 text-sm mt-1 flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-              </span>
-              Live real-time monitoring • Update every 3s
-            </p>
-          </div>
+      <div className="flex justify-between items-center flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <Network className="h-6 w-6 text-primary" /> Consensus State
+          </h1>
+          <p className="text-sm text-muted-foreground flex items-center gap-2 mt-1">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+            </span>
+            Live real-time monitoring · Update every 3s
+          </p>
         </div>
 
         <div className="flex gap-3">
@@ -229,7 +222,7 @@ function ConsensusPage() {
             <select
               value={rpcUrl}
               onChange={(e) => setRpcUrl(e.target.value)}
-              className="appearance-none bg-slate-800/80 backdrop-blur-sm border border-slate-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-all cursor-pointer"
+              className="appearance-none bg-card border border-border rounded-xl px-4 py-2 text-sm text-foreground focus:outline-none focus:border-primary transition-all cursor-pointer"
             >
               {defaultNetwork.rpcs.map((url: string) => (
                 <option key={url} value={url + "/consensus_state"}>
@@ -237,11 +230,11 @@ function ConsensusPage() {
                 </option>
               ))}
             </select>
-            <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none rotate-90" />
+            <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none rotate-90" />
           </div>
           <button
             onClick={() => refetch()}
-            className="bg-slate-800/80 backdrop-blur-sm border border-slate-700 hover:bg-slate-700 transition-all text-white rounded-xl px-4 py-2 text-sm font-medium flex items-center gap-2"
+            className="bg-card border border-border hover:bg-accent/40 transition-all rounded-xl px-4 py-2 text-sm font-medium flex items-center gap-2"
           >
             <RefreshCw className="h-4 w-4" /> Refresh
           </button>
@@ -251,7 +244,7 @@ function ConsensusPage() {
       {/* Stats Cards */}
       {round?.["height/round/step"] && (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <StatCard label="Onboard Rate" value={onboardRate} icon="O" gradient="from-rose-500 to-red-500" />
             <StatCard label="Height" value={formatNumber(Number(height))} icon="H" gradient="from-emerald-500 to-teal-500" />
             <StatCard label="Round" value={roundNum} icon="R" gradient="from-violet-500 to-purple-500" />
@@ -259,92 +252,92 @@ function ConsensusPage() {
           </div>
 
           {/* Live Indicators */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 p-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card className="card-3d p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <Wifi className="h-5 w-5 text-green-400" />
-                  <span className="text-slate-300 text-sm">Network Sync</span>
+                  <Wifi className="h-5 w-5 text-success" />
+                  <span className="text-sm">Network Sync</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 bg-green-400 rounded-full animate-pulse"></div>
-                  <span className="text-green-400 text-xs">Live</span>
+                  <div className="h-2 w-2 bg-success rounded-full animate-pulse"></div>
+                  <span className="text-success text-xs">Live</span>
                 </div>
               </div>
               <div className="mt-2">
-                <div className="text-2xl font-bold text-white">{height}</div>
-                <div className="text-xs text-slate-500">Latest Block</div>
+                <div className="text-2xl font-bold">{height}</div>
+                <div className="text-xs text-muted-foreground">Latest Block</div>
               </div>
-            </div>
+            </Card>
 
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 p-4">
+            <Card className="card-3d p-4">
               <div className="flex items-center gap-3 mb-2">
-                <Activity className="h-5 w-5 text-blue-400" />
-                <span className="text-slate-300 text-sm">Active Validators</span>
+                <Activity className="h-5 w-5 text-primary" />
+                <span className="text-sm">Active Validators</span>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold text-white">{activeVotes}</span>
-                <span className="text-slate-500 text-sm">/ {totalValidators}</span>
+                <span className="text-2xl font-bold">{activeVotes}</span>
+                <span className="text-muted-foreground text-sm">/ {totalValidators}</span>
               </div>
-              <div className="w-full bg-slate-700 rounded-full h-1.5 mt-2">
-                <div 
-                  className="bg-gradient-to-r from-green-400 to-blue-500 h-1.5 rounded-full transition-all duration-300" 
+              <div className="w-full bg-muted rounded-full h-1.5 mt-2">
+                <div
+                  className="bg-gradient-to-r from-success to-primary h-1.5 rounded-full transition-all duration-300"
                   style={{ width: `${totalValidators > 0 ? (activeVotes / totalValidators) * 100 : 0}%` }}
                 ></div>
               </div>
-            </div>
+            </Card>
 
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 p-4">
+            <Card className="card-3d p-4">
               <div className="flex items-center gap-3 mb-2">
-                <Clock className="h-5 w-5 text-purple-400" />
-                <span className="text-slate-300 text-sm">Last Update</span>
+                <Clock className="h-5 w-5 text-primary" />
+                <span className="text-sm">Last Update</span>
               </div>
-              <div className="text-xl font-mono text-white">{new Date().toLocaleTimeString()}</div>
-              <div className="text-xs text-slate-500 mt-1">Real-time every 3 seconds</div>
-            </div>
+              <div className="text-xl font-mono">{new Date().toLocaleTimeString()}</div>
+              <div className="text-xs text-muted-foreground mt-1">Real-time every 3 seconds</div>
+            </Card>
           </div>
 
           {/* Charts Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 p-5">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Card className="card-3d p-5">
               <div className="flex items-center gap-2 mb-4">
-                <TrendingUp className="h-5 w-5 text-blue-400" />
-                <h3 className="text-white font-semibold">Vote History (Last 20 updates)</h3>
+                <TrendingUp className="h-5 w-5 text-primary" />
+                <h3 className="font-semibold">Vote History (Last 20 updates)</h3>
               </div>
               <ResponsiveContainer width="100%" height={300}>
                 <AreaChart data={voteChartData}>
                   <defs>
                     <linearGradient id="votedGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="missedGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="time" stroke="#94a3b8" fontSize={10} tick={{ fill: "#94a3b8" }} />
-                  <YAxis stroke="#94a3b8" fontSize={10} tick={{ fill: "#94a3b8" }} />
-                  <Tooltip contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" }} />
-                  <Legend wrapperStyle={{ color: "#cbd5e1" }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="time" stroke="var(--muted-foreground)" fontSize={10} tick={{ fill: "var(--muted-foreground)" }} />
+                  <YAxis stroke="var(--muted-foreground)" fontSize={10} tick={{ fill: "var(--muted-foreground)" }} />
+                  <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} />
+                  <Legend wrapperStyle={{ color: "var(--muted-foreground)" }} />
                   <Area type="monotone" dataKey="voted" stroke="#10b981" fill="url(#votedGradient)" name="Voted" />
                   <Area type="monotone" dataKey="missed" stroke="#ef4444" fill="url(#missedGradient)" name="Missed" />
                 </AreaChart>
               </ResponsiveContainer>
-            </div>
+            </Card>
 
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 p-5">
+            <Card className="card-3d p-5">
               <div className="flex items-center gap-2 mb-4">
-                <BarChart3 className="h-5 w-5 text-purple-400" />
-                <h3 className="text-white font-semibold">Top Validators by Voting Power</h3>
+                <BarChart3 className="h-5 w-5 text-primary" />
+                <h3 className="font-semibold">Top Validators by Voting Power</h3>
               </div>
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={votingPowerData} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis type="number" stroke="#94a3b8" fontSize={10} tick={{ fill: "#94a3b8" }} />
-                  <YAxis type="category" dataKey="name" stroke="#94a3b8" fontSize={10} tick={{ fill: "#94a3b8" }} width={120} />
-                  <Tooltip contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" }} formatter={(value: number) => value.toLocaleString()} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis type="number" stroke="var(--muted-foreground)" fontSize={10} tick={{ fill: "var(--muted-foreground)" }} />
+                  <YAxis type="category" dataKey="name" stroke="var(--muted-foreground)" fontSize={10} tick={{ fill: "var(--muted-foreground)" }} width={120} />
+                  <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }} formatter={(value: number) => value.toLocaleString()} />
                   <Bar dataKey="power" fill="#8b5cf6" radius={[0, 4, 4, 0]}>
                     {votingPowerData.map((_: any, index: number) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -352,15 +345,15 @@ function ConsensusPage() {
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
-            </div>
+            </Card>
           </div>
 
           {/* Pie Chart + Live Status */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 p-5">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Card className="card-3d p-5">
               <div className="flex items-center gap-2 mb-4">
-                <PieChart className="h-5 w-5 text-pink-400" />
-                <h3 className="text-white font-semibold">Current Round Vote Distribution</h3>
+                <PieChart className="h-5 w-5 text-primary" />
+                <h3 className="font-semibold">Current Round Vote Distribution</h3>
               </div>
               <ResponsiveContainer width="100%" height={300}>
                 <RePieChart>
@@ -377,69 +370,69 @@ function ConsensusPage() {
                       <Cell key={`cell-${index}`} fill={entry.fill} />
                     ))}
                   </Pie>
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px" }}
+                  <Tooltip
+                    contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px" }}
                     formatter={(value: number) => `${value} votes`}
                   />
-                  <Legend wrapperStyle={{ color: "#cbd5e1" }} />
+                  <Legend wrapperStyle={{ color: "var(--muted-foreground)" }} />
                 </RePieChart>
               </ResponsiveContainer>
-            </div>
+            </Card>
 
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 p-5">
+            <Card className="card-3d p-5">
               <div className="flex items-center gap-2 mb-4">
-                <Activity className="h-5 w-5 text-green-400 animate-pulse" />
-                <h3 className="text-white font-semibold">Live Voting Status</h3>
+                <Activity className="h-5 w-5 text-success animate-pulse" />
+                <h3 className="font-semibold">Live Voting Status</h3>
               </div>
               <div className="space-y-4">
                 <div>
                   <div className="flex justify-between text-sm mb-1">
-                    <span className="text-slate-400">Prevotes</span>
-                    <span className="text-white">{activeVotes} / {totalValidators}</span>
+                    <span className="text-muted-foreground">Prevotes</span>
+                    <span className="font-medium">{activeVotes} / {totalValidators}</span>
                   </div>
-                  <div className="w-full bg-slate-700 rounded-full h-2">
+                  <div className="w-full bg-muted rounded-full h-2">
                     <div className="bg-gradient-to-r from-orange-500 to-yellow-500 h-2 rounded-full transition-all duration-300" style={{ width: `${totalValidators > 0 ? (activeVotes / totalValidators) * 100 : 0}%` }}></div>
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between text-sm mb-1">
-                    <span className="text-slate-400">Precommits</span>
-                    <span className="text-white">{activePrecommits} / {totalValidators}</span>
+                    <span className="text-muted-foreground">Precommits</span>
+                    <span className="font-medium">{activePrecommits} / {totalValidators}</span>
                   </div>
-                  <div className="w-full bg-slate-700 rounded-full h-2">
+                  <div className="w-full bg-muted rounded-full h-2">
                     <div className="bg-gradient-to-r from-green-500 to-emerald-500 h-2 rounded-full transition-all duration-300" style={{ width: `${totalValidators > 0 ? (activePrecommits / totalValidators) * 100 : 0}%` }}></div>
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between text-sm mb-1">
-                    <span className="text-slate-400">Consensus Progress</span>
-                    <span className="text-white">{onboardRate}</span>
+                    <span className="text-muted-foreground">Consensus Progress</span>
+                    <span className="font-medium">{onboardRate}</span>
                   </div>
-                  <div className="w-full bg-slate-700 rounded-full h-2">
+                  <div className="w-full bg-muted rounded-full h-2">
                     <div className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300" style={{ width: onboardRate }}></div>
                   </div>
                 </div>
               </div>
-            </div>
+            </Card>
           </div>
 
-          {/* Vote Display — Menampilkan nama validator, bukan hex */}
+          {/* Vote Display */}
           {round?.height_vote_set?.map((voteSet: any, idx: number) => (
-            <Card key={idx} className="overflow-hidden bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-2xl mb-6">
+            <Card key={idx} className="card-3d overflow-hidden mb-6">
               <div className="p-5">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
-                    <div className="w-1 h-6 bg-gradient-to-b from-blue-500 to-purple-500 rounded-full"></div>
-                    <h3 className="text-lg font-semibold text-white">Round {voteSet.round}</h3>
+                    <div className="w-1 h-6 bg-gradient-to-b from-primary to-primary/50 rounded-full"></div>
+                    <h3 className="text-lg font-semibold">Round {voteSet.round}</h3>
                   </div>
                   <div className="flex items-center gap-2 text-xs">
-                    <span className="flex items-center gap-1"><Circle className="h-2 w-2 text-green-400 fill-green-400" /><span className="text-slate-400">Voted</span></span>
-                    <span className="flex items-center gap-1"><Circle className="h-2 w-2 text-red-500 fill-red-500" /><span className="text-slate-400">Missed</span></span>
-                    <span className="flex items-center gap-1"><Circle className="h-2 w-2 text-yellow-500 fill-yellow-500" /><span className="text-slate-400">Proposer</span></span>
+                    <span className="flex items-center gap-1"><Circle className="h-2 w-2 text-success fill-success" /><span className="text-muted-foreground">Voted</span></span>
+                    <span className="flex items-center gap-1"><Circle className="h-2 w-2 text-destructive fill-destructive" /><span className="text-muted-foreground">Missed</span></span>
+                    <span className="flex items-center gap-1"><Circle className="h-2 w-2 text-warning fill-warning" /><span className="text-muted-foreground">Proposer</span></span>
                   </div>
                 </div>
 
-                <div className="text-xs font-mono break-all mb-4 text-slate-400 bg-slate-900/50 p-3 rounded-xl">
+                <div className="text-xs font-mono break-all mb-4 text-muted-foreground bg-muted/50 p-3 rounded-xl">
                   {voteSet.prevotes_bit_array}
                 </div>
 
@@ -448,11 +441,10 @@ function ConsensusPage() {
                     const isNil = pre?.toLowerCase() === "nil-vote";
                     const isPrecommitNil = voteSet.precommits?.[i]?.toLowerCase() === "nil-vote";
                     const isProposer = i === proposerIndex;
-                    
-                    // 🔥 NAMA VALIDATOR ASLI, BUKAN HEX
+
                     const validatorName = getValidatorName(i);
-                    
-                    let bgColor = "bg-slate-700";
+
+                    let bgColor = "bg-muted";
                     if (!isNil) bgColor = "bg-gradient-to-r from-green-500 to-emerald-500";
                     if (isNil && isProposer) bgColor = "bg-gradient-to-r from-yellow-500 to-orange-500";
                     if (isNil && !isProposer) bgColor = "bg-gradient-to-r from-red-500 to-rose-500";
@@ -467,13 +459,13 @@ function ConsensusPage() {
                             <div className="flex gap-1.5">
                               <div className="relative group/tooltip">
                                 <div className={`w-2.5 h-2.5 rounded-full ${isNil ? 'bg-red-400' : 'bg-green-400'} ${isProposer ? 'ring-2 ring-yellow-400' : ''}`} />
-                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-slate-900 text-white text-xs rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-foreground text-background text-xs rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
                                   Prevote: {pre?.slice(0, 30)}...
                                 </div>
                               </div>
                               <div className="relative group/tooltip">
                                 <div className={`w-2.5 h-2.5 rounded-full ${isPrecommitNil ? 'bg-red-400' : 'bg-green-400'}`} />
-                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-slate-900 text-white text-xs rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-foreground text-background text-xs rounded opacity-0 group-hover/tooltip:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
                                   Precommit: {voteSet.precommits?.[i]?.slice(0, 30)}...
                                 </div>
                               </div>
@@ -496,19 +488,19 @@ function ConsensusPage() {
 function StatCard({ label, value, icon, gradient, stepColor }: { label: string; value: string; icon: any; gradient: string; stepColor?: string }) {
   const IconComponent = typeof icon === 'string' ? () => <span className="text-2xl font-bold">{icon}</span> : icon;
   return (
-    <div className="relative group bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 p-5 overflow-hidden transition-all duration-300 hover:scale-105">
+    <Card className="card-3d relative group overflow-hidden transition-all duration-300 hover:scale-105">
       <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-0 group-hover:opacity-10 transition-opacity duration-300`}></div>
-      <div className="relative flex justify-between items-start">
+      <div className="relative p-5 flex justify-between items-start">
         <div>
-          <p className="text-slate-400 text-sm tracking-wide mb-2">{label}</p>
-          <p className={`text-3xl font-bold ${stepColor || 'text-white'} transition-all duration-300 group-hover:scale-105 origin-left`}>{value}</p>
+          <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">{label}</p>
+          <p className={`text-2xl font-bold ${stepColor || ''} transition-all duration-300 group-hover:scale-105 origin-left`}>{value}</p>
         </div>
         <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shadow-lg`}>
           {typeof icon === 'string' ? <span className="text-white text-xl font-bold">{icon}</span> : <IconComponent className="h-6 w-6 text-white" />}
         </div>
       </div>
       <div className={`absolute bottom-0 left-0 h-0.5 bg-gradient-to-r ${gradient} w-0 group-hover:w-full transition-all duration-300`}></div>
-    </div>
+    </Card>
   );
 }
 
