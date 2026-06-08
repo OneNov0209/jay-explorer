@@ -54,20 +54,22 @@ function IbcTransferPage() {
   const [err, setErr] = useState<string | null>(null);
   const [searchQ, setSearchQ] = useState("");
 
-  // Fetch IBC channels dari Chain Registry — per-file (cosmoshub-thejaynetwork.json, dll)
+  // Fetch IBC channels dari Chain Registry
   const { data: ibcChannels, isLoading: channelsLoading } = useQuery({
     queryKey: ["ibc-channels"],
     queryFn: async (): Promise<IbcChannel[]> => {
       try {
-        // Fetch list file IBC yang mengandung "thejaynetwork"
+        // Fetch list file IBC dari GitHub API
         const listRes = await fetch(
           "https://api.github.com/repos/cosmos/chain-registry/contents/_IBC",
         );
-        if (!listRes.ok) throw new Error("Cannot fetch IBC directory");
+        if (!listRes.ok) return [];
         const files: Array<{ name: string }> = await listRes.json();
 
-        // Filter file yang mengandung "thejaynetwork" (format: {chain}-thejaynetwork.json)
-        const jayFiles = files.filter((f) => f.name.includes("thejaynetwork"));
+        // Filter file yang mengandung "thejaynetwork"
+        const jayFiles = files.filter((f: { name: string }) =>
+          f.name.includes("thejaynetwork"),
+        );
 
         const channels: IbcChannel[] = [];
 
@@ -79,7 +81,6 @@ function IbcTransferPage() {
             if (!res.ok) continue;
             const data = await res.json();
 
-            // Tentukan siapa chain Jay dan siapa counterparty
             const jayKey =
               data.chain_1?.chain_name === "thejaynetwork" ? "chain_1" : "chain_2";
             const counterKey = jayKey === "chain_1" ? "chain_2" : "chain_1";
@@ -89,7 +90,6 @@ function IbcTransferPage() {
 
             if (!jayChannel || !counterChain) continue;
 
-            // Fetch chain name dari chain registry
             let displayName = counterChain;
             let logo = "";
             let prefix = "";
@@ -107,7 +107,9 @@ function IbcTransferPage() {
                   chainData?.images?.[0]?.svg ||
                   "";
               }
-            } catch {}
+            } catch {
+              // ignore
+            }
 
             try {
               const assetRes = await fetch(
@@ -117,7 +119,9 @@ function IbcTransferPage() {
                 const assetData = await assetRes.json();
                 prefix = assetData?.assets?.[0]?.address?.split("1")[0] || "";
               }
-            } catch {}
+            } catch {
+              // ignore
+            }
 
             channels.push({
               chain_name: counterChain,
@@ -127,14 +131,15 @@ function IbcTransferPage() {
               prefix: prefix || counterChain.slice(0, 4),
               counter_chain_id: data[counterKey]?.chain_id || "",
             });
-          } catch {}
+          } catch {
+            // skip file error
+          }
         }
 
         return channels.sort((a, b) =>
           a.display_name.localeCompare(b.display_name),
         );
-      } catch (e) {
-        console.warn("Failed to fetch IBC channels:", e);
+      } catch {
         return [];
       }
     },
@@ -217,7 +222,7 @@ function IbcTransferPage() {
       <Card className="p-6">
         {step === "form" && (
           <div className="space-y-4">
-            {/* Destination Chain — Fetch otomatis dari Chain Registry */}
+            {/* Destination Chain */}
             <div>
               <label className="text-xs uppercase tracking-wider text-muted-foreground">
                 Destination Chain
@@ -238,9 +243,7 @@ function IbcTransferPage() {
                   <div className="mt-2 max-h-48 overflow-y-auto border border-border rounded-lg divide-y divide-border">
                     {filteredChannels.length === 0 ? (
                       <div className="p-4 text-center text-xs text-muted-foreground">
-                        {ibcChannels && ibcChannels.length > 0
-                          ? "No matching chains"
-                          : "No IBC channels found. Try manual input below."}
+                        No IBC channels found. Try manual input below.
                       </div>
                     ) : (
                       filteredChannels.map((c) => (
@@ -261,13 +264,13 @@ function IbcTransferPage() {
                             <img
                               src={c.logo}
                               alt={c.display_name}
-                              className="h-6 w-6 rounded-full"
+                              className="h-6 w-6 rounded-full shrink-0"
                               onError={(e) => {
                                 (e.currentTarget as HTMLImageElement).style.display = "none";
                               }}
                             />
                           ) : (
-                            <div className="h-6 w-6 rounded-full bg-primary/15 grid place-items-center text-primary">
+                            <div className="h-6 w-6 rounded-full bg-primary/15 grid place-items-center text-primary shrink-0">
                               <Globe className="h-3.5 w-3.5" />
                             </div>
                           )}
@@ -275,7 +278,7 @@ function IbcTransferPage() {
                             <div className="text-sm font-medium truncate">
                               {c.display_name}
                             </div>
-                            <div className="text-[10px] text-muted-foreground font-mono">
+                            <div className="text-[10px] text-muted-foreground font-mono truncate">
                               {c.channel_id} · receiver: {c.prefix}1…
                             </div>
                           </div>
@@ -386,23 +389,42 @@ function IbcTransferPage() {
 
             {/* Summary */}
             <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs space-y-1">
-              <Row label="From" value={shorten(address ?? "—", 12, 8)} />
-              <Row label="To" value={shorten(receiver || "—", 12, 8)} />
-              <Row
-                label="Destination"
-                value={
-                  selectedChannel ? selectedChannel.display_name : channel || "—"
-                }
-              />
-              <Row label="Channel" value={channel || "—"} />
-              <Row
-                label="Amount"
-                value={`${amount || "0"} ${defaultNetwork.coinDenom}`}
-              />
-              <Row
-                label="Network Fee"
-                value={formatAmount(fee.raw, { precision: 6 })}
-              />
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">From</span>
+                <span className="text-foreground/90 truncate max-w-[60%] font-mono">
+                  {shorten(address ?? "—", 12, 8)}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">To</span>
+                <span className="text-foreground/90 truncate max-w-[60%] font-mono">
+                  {shorten(receiver || "—", 12, 8)}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Destination</span>
+                <span className="text-foreground/90 truncate max-w-[60%] font-mono">
+                  {selectedChannel ? selectedChannel.display_name : channel || "—"}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Channel</span>
+                <span className="text-foreground/90 truncate max-w-[60%] font-mono">
+                  {channel || "—"}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Amount</span>
+                <span className="text-foreground/90 truncate max-w-[60%] font-mono">
+                  {amount || "0"} {defaultNetwork.coinDenom}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Network Fee</span>
+                <span className="text-foreground/90 truncate max-w-[60%] font-mono">
+                  {formatAmount(fee.raw, { precision: 6 })}
+                </span>
+              </div>
             </div>
 
             <button
@@ -415,7 +437,7 @@ function IbcTransferPage() {
             </button>
 
             {/* Powered by Chain Registry */}
-            <p className="text-[10px] text-muted-foreground text-center">
+            <div className="text-[10px] text-muted-foreground text-center">
               IBC channel data from{" "}
               <a
                 href="https://github.com/cosmos/chain-registry"
@@ -425,7 +447,7 @@ function IbcTransferPage() {
               >
                 Cosmos Chain Registry <ExternalLink className="h-2.5 w-2.5" />
               </a>
-            </p>
+            </div>
           </div>
         )}
 
@@ -446,9 +468,9 @@ function IbcTransferPage() {
                   ✕
                 </div>
                 <div className="text-sm font-semibold">Transfer failed</div>
-                <p className="text-xs text-muted-foreground text-center max-w-md break-words">
+                <div className="text-xs text-muted-foreground text-center max-w-md break-words">
                   {err}
-                </p>
+                </div>
                 <button
                   onClick={() => setStep("form")}
                   className="mt-2 px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent/40"
@@ -485,15 +507,6 @@ function IbcTransferPage() {
           </div>
         )}
       </Card>
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-foreground/90 truncate max-w-[60%] font-mono">{value}</span>
     </div>
   );
 }
