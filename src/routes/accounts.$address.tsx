@@ -5,13 +5,14 @@ import { Card, Skeleton, Badge } from "@/components/shared/ui";
 import { CopyButton } from "@/components/shared/CopyButton";
 import { formatAmount, shorten, timeAgo } from "@/lib/format";
 import { defaultNetwork } from "@/data/networks";
-import { Wallet, Send, Coins, ArrowDownLeft, ArrowUpRight, Layers } from "lucide-react";
+import { Wallet, Send, Coins, ArrowDownLeft, ArrowUpRight, Layers, Globe, Copy } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useWallet } from "@/lib/wallet";
 import { TransactionModal } from "@/components/tx/TransactionModal";
 import { ClaimDialog } from "@/components/tx/VoteClaimDialogs";
 import { ValidatorAvatar } from "@/routes/validators";
 import { decodeTx } from "@/lib/decodeTx";
+import { toast } from "sonner";
 import {
   PieChart,
   Pie,
@@ -34,6 +35,15 @@ export const Route = createFileRoute("/accounts/$address")({
 });
 
 const PIE_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "var(--chart-6)"];
+
+interface IbcCoin {
+  denom: string;
+  amount: string;
+  name: string;
+  symbol: string;
+  logo: string;
+  originChain: string;
+}
 
 function AccountPage() {
   const { address } = Route.useParams();
@@ -63,10 +73,78 @@ function AccountPage() {
     refetchInterval: 30_000,
   });
 
+  // Fetch IBC denom mapping dari Chain Registry
+  const { data: ibcDenomMap } = useQuery({
+    queryKey: ["ibc-denom-map"],
+    queryFn: async (): Promise<Map<string, IbcCoin>> => {
+      const map = new Map<string, IbcCoin>();
+      try {
+        // Fetch asset list dari Chain Registry untuk Jay Network
+        const res = await fetch(
+          `https://raw.githubusercontent.com/cosmos/chain-registry/master/thejaynetwork/assetlist.json`,
+        );
+        if (!res.ok) return map;
+        const data = await res.json();
+
+        for (const asset of data.assets ?? []) {
+          if (!asset.denom_units || asset.denom === "ujay") continue;
+
+          // Cari IBC denom
+          const ibcDenom = asset.denom_units.find(
+            (u: any) => u.denom.startsWith("ibc/"),
+          )?.denom || asset.denom;
+
+          // Cari trace info
+          const trace = asset.traces?.[0] || {};
+
+          // Ambil logo dari asset
+          let logo = "";
+          if (asset.logo_URIs?.png) {
+            logo = asset.logo_URIs.png;
+          } else if (asset.image_sync?.png) {
+            logo = asset.image_sync.png;
+          }
+
+          map.set(ibcDenom, {
+            denom: ibcDenom,
+            amount: "0",
+            name: asset.name || ibcDenom.slice(0, 12) + "...",
+            symbol: asset.symbol || "",
+            logo,
+            originChain: trace.counterparty_chain_name || "Unknown",
+          });
+        }
+      } catch {}
+      return map;
+    },
+    staleTime: 30 * 60_000,
+    refetchInterval: 30 * 60_000,
+  });
+
   const isVal = address.startsWith(defaultNetwork.bech32Config.bech32PrefixValAddr);
+  const balances = balance?.balances ?? [];
   const available = Number(
-    balance?.balances?.find((b: any) => b.denom === defaultNetwork.denom)?.amount ?? 0,
+    balances.find((b: any) => b.denom === defaultNetwork.denom)?.amount ?? 0,
   );
+
+  // Pisahin IBC coins dari native coin
+  const ibcCoins = useMemo(() => {
+    return balances
+      .filter((b: any) => b.denom.startsWith("ibc/"))
+      .map((b: any) => {
+        const mapped = ibcDenomMap?.get(b.denom);
+        return {
+          denom: b.denom,
+          amount: b.amount,
+          name: mapped?.name || shorten(b.denom, 12, 6),
+          symbol: mapped?.symbol || "",
+          logo: mapped?.logo || "",
+          originChain: mapped?.originChain || "Unknown",
+        };
+      })
+      .sort((a: any, b: any) => b.amount - a.amount);
+  }, [balances, ibcDenomMap]);
+
   const delegations = dels?.delegation_responses ?? [];
   const delegated = delegations.reduce(
     (s: number, d: any) => s + Number(d.balance?.amount ?? 0),
@@ -162,6 +240,11 @@ function AccountPage() {
       amount: d.amount / Math.pow(10, defaultNetwork.tokenDecimals),
     }));
 
+  const copyAddr = () => {
+    navigator.clipboard.writeText(address);
+    toast.success("Address copied");
+  };
+
   return (
     <div className="space-y-6">
       <Card className="p-6">
@@ -229,6 +312,70 @@ function AccountPage() {
         <Stat label="Unbonding" value={formatAmount(unbonding)} />
         <Stat label="Rewards" value={formatAmount(totalRewards.toFixed(0))} />
       </div>
+
+      {/* IBC Coins Section */}
+      {ibcCoins.length > 0 && (
+        <Card className="overflow-hidden">
+          <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+            <h2 className="font-semibold inline-flex items-center gap-2">
+              <Globe className="h-4 w-4 text-primary" /> IBC Coins
+            </h2>
+            <span className="text-xs text-muted-foreground">
+              {ibcCoins.length} token{ibcCoins.length > 1 ? "s" : ""}
+            </span>
+          </div>
+          <div className="divide-y divide-border">
+            {ibcCoins.map((coin) => (
+              <div
+                key={coin.denom}
+                className="flex items-center justify-between px-5 py-4 hover:bg-accent/20 transition"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  {coin.logo ? (
+                    <img
+                      src={coin.logo}
+                      alt={coin.name}
+                      className="h-8 w-8 rounded-full"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = "none";
+                      }}
+                    />
+                  ) : (
+                    <div className="h-8 w-8 rounded-full bg-primary/15 grid place-items-center text-primary">
+                      <Globe className="h-4 w-4" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="font-medium text-sm truncate">
+                      {coin.name}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                      {coin.symbol && (
+                        <Badge variant="muted" className="text-[10px]">
+                          {coin.symbol}
+                        </Badge>
+                      )}
+                      <span className="font-mono text-[10px]">
+                        {shorten(coin.denom, 10, 6)}
+                      </span>
+                      {coin.originChain !== "Unknown" && (
+                        <span className="text-[10px]">
+                          from {coin.originChain}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="font-mono text-sm font-semibold">
+                    {formatAmount(coin.amount, { precision: coin.symbol ? 4 : 0 })}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Charts */}
       <div className="grid lg:grid-cols-2 gap-4">
