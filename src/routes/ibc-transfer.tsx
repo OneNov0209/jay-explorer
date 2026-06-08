@@ -1,13 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card } from "@/components/shared/ui";
+import { Card, Skeleton } from "@/components/shared/ui";
 import { useWallet } from "@/lib/wallet";
 import { defaultNetwork } from "@/data/networks";
 import { lcd, safe } from "@/lib/cosmos";
 import { ibcTransfer, estimateFee, type FeeTier } from "@/lib/tx";
 import { formatAmount, shorten } from "@/lib/format";
-import { ArrowRight, Check, Loader2, Globe } from "lucide-react";
+import { ArrowRight, Check, Loader2, Globe, Search, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -24,12 +24,17 @@ export const Route = createFileRoute("/ibc-transfer")({
   component: IbcTransferPage,
 });
 
-const PRESETS: Array<{ label: string; channel: string; prefix: string }> = [
-  { label: "Cosmos Hub (channel-0)", channel: "channel-0", prefix: "cosmos" },
-  { label: "Osmosis (channel-1)", channel: "channel-1", prefix: "osmo" },
-];
+interface IbcChannel {
+  chain_name: string;
+  display_name: string;
+  logo: string;
+  channel_id: string;
+  prefix: string;
+  counter_chain_id: string;
+}
 
 const DECIMALS = defaultNetwork.tokenDecimals;
+
 function toMicro(human: string): string {
   if (!human) return "0";
   const [w, f = ""] = human.split(".");
@@ -39,7 +44,7 @@ function toMicro(human: string): string {
 
 function IbcTransferPage() {
   const { address, connect } = useWallet();
-  const [channel, setChannel] = useState("channel-0");
+  const [channel, setChannel] = useState("");
   const [receiver, setReceiver] = useState("");
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
@@ -47,7 +52,94 @@ function IbcTransferPage() {
   const [step, setStep] = useState<"form" | "submitting" | "done">("form");
   const [hash, setHash] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [searchQ, setSearchQ] = useState("");
 
+  // Fetch IBC channels dari Chain Registry
+  const { data: ibcChannels, isLoading: channelsLoading } = useQuery({
+    queryKey: ["ibc-channels"],
+    queryFn: async (): Promise<IbcChannel[]> => {
+      try {
+        // Fetch dari Chain Registry _IBC
+        const res = await fetch(
+          `https://raw.githubusercontent.com/cosmos/chain-registry/master/_IBC/${defaultNetwork.chainId}-1.json`,
+        );
+        if (!res.ok) throw new Error("IBC data not found");
+        const data = await res.json();
+
+        // Fetch chain names dari Chain Registry
+        const chainNamesRes = await fetch(
+          "https://raw.githubusercontent.com/cosmos/chain-registry/master/_IBC/chain-names.json",
+        );
+        const chainNames = chainNamesRes.ok ? await chainNamesRes.json() : {};
+
+        const channels: IbcChannel[] = [];
+
+        // Loop semua channel di _IBC data
+        for (const ch of data.channels ?? []) {
+          const jayChainKey =
+            ch.chain_1?.chain_name === "thejaynetwork" ? "chain_1" : "chain_2";
+          const counterChainKey =
+            jayChainKey === "chain_1" ? "chain_2" : "chain_1";
+
+          const jayChannel = ch[jayChainKey]?.channel_id;
+          const counterChannel = ch[counterChainKey]?.channel_id;
+          const counterChainName = ch[counterChainKey]?.chain_name;
+
+          if (!jayChannel || !counterChainName) continue;
+
+          const displayName =
+            chainNames[counterChainName] || counterChainName.replace(/(^\w|-\w)/g, (c: string) => c.replace("-", " ").toUpperCase());
+
+          // Fetch chain logo dari Chain Registry
+          let logo = "";
+          try {
+            const chainRes = await fetch(
+              `https://raw.githubusercontent.com/cosmos/chain-registry/master/${counterChainName}/chain.json`,
+            );
+            if (chainRes.ok) {
+              const chainData = await chainRes.json();
+              logo = chainData?.images?.[0]?.png || chainData?.images?.[0]?.svg || "";
+            }
+          } catch {
+            logo = "";
+          }
+
+          // Tentukan prefix dari chain registry
+          let prefix = "";
+          try {
+            const assetRes = await fetch(
+              `https://raw.githubusercontent.com/cosmos/chain-registry/master/${counterChainName}/assetlist.json`,
+            );
+            if (assetRes.ok) {
+              const assetData = await assetRes.json();
+              prefix = assetData?.assets?.[0]?.address?.split("1")[0] || counterChainName.slice(0, 4);
+            }
+          } catch {
+            prefix = counterChainName.slice(0, 4);
+          }
+
+          channels.push({
+            chain_name: counterChainName,
+            display_name: displayName,
+            logo,
+            channel_id: jayChannel,
+            prefix: prefix || counterChainName.slice(0, 4),
+            counter_chain_id: ch[counterChainKey]?.chain_id || "",
+          });
+        }
+
+        return channels.sort((a, b) => a.display_name.localeCompare(b.display_name));
+      } catch (e) {
+        console.warn("Failed to fetch IBC channels from Chain Registry:", e);
+        return [];
+      }
+    },
+    staleTime: 30 * 60_000, // 30 menit cache
+    refetchInterval: 30 * 60_000,
+    placeholderData: (prev) => prev,
+  });
+
+  // Fetch balance
   const { data: bal } = useQuery({
     queryKey: ["ibc-bal", address],
     queryFn: () => safe(lcd.balance(address!)),
@@ -57,11 +149,26 @@ function IbcTransferPage() {
   const available =
     bal?.balances?.find((b: any) => b.denom === defaultNetwork.denom)?.amount ?? "0";
 
+  // Filter channels by search
+  const filteredChannels = useMemo(() => {
+    if (!ibcChannels) return [];
+    if (!searchQ) return ibcChannels;
+    const q = searchQ.toLowerCase();
+    return ibcChannels.filter(
+      (c) =>
+        c.display_name.toLowerCase().includes(q) ||
+        c.chain_name.toLowerCase().includes(q) ||
+        c.channel_id.toLowerCase().includes(q),
+    );
+  }, [ibcChannels, searchQ]);
+
+  const selectedChannel = ibcChannels?.find((c) => c.channel_id === channel);
+
   const fee = estimateFee(tier, 250_000);
 
   const submit = async () => {
     if (!address) return connect();
-    if (!channel.startsWith("channel-")) return toast.error("Invalid channel");
+    if (!channel) return toast.error("Select a destination chain");
     if (!receiver || receiver.length < 10) return toast.error("Invalid receiver");
     if (!amount || Number(amount) <= 0) return toast.error("Enter amount");
     setStep("submitting");
@@ -105,32 +212,75 @@ function IbcTransferPage() {
       <Card className="p-6">
         {step === "form" && (
           <div className="space-y-4">
+            {/* Destination Chain — Fetch otomatis dari Chain Registry */}
             <div>
               <label className="text-xs uppercase tracking-wider text-muted-foreground">
-                Destination Chain (preset)
+                Destination Chain
               </label>
-              <div className="mt-1 grid grid-cols-2 gap-2">
-                {PRESETS.map((p) => (
-                  <button
-                    key={p.channel}
-                    type="button"
-                    onClick={() => setChannel(p.channel)}
-                    className={cn(
-                      "rounded-lg border px-3 py-2 text-xs text-left transition",
-                      channel === p.channel
-                        ? "border-primary bg-primary/10"
-                        : "border-border hover:border-primary/40",
+              {channelsLoading ? (
+                <Skeleton className="mt-1 h-10 w-full rounded-lg" />
+              ) : (
+                <>
+                  <div className="relative mt-1">
+                    <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      value={searchQ}
+                      onChange={(e) => setSearchQ(e.target.value)}
+                      placeholder="Search chain..."
+                      className="w-full pl-10 pr-3 py-2 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm"
+                    />
+                  </div>
+                  <div className="mt-2 max-h-48 overflow-y-auto border border-border rounded-lg divide-y divide-border">
+                    {filteredChannels.length === 0 ? (
+                      <div className="p-4 text-center text-xs text-muted-foreground">
+                        No chains found
+                      </div>
+                    ) : (
+                      filteredChannels.map((c) => (
+                        <button
+                          key={c.channel_id}
+                          type="button"
+                          onClick={() => {
+                            setChannel(c.channel_id);
+                            setSearchQ("");
+                          }}
+                          className={cn(
+                            "w-full flex items-center gap-3 px-3 py-2.5 text-left transition hover:bg-accent/30",
+                            channel === c.channel_id && "bg-primary/10 border-l-2 border-primary",
+                          )}
+                        >
+                          {c.logo ? (
+                            <img
+                              src={c.logo}
+                              alt={c.display_name}
+                              className="h-6 w-6 rounded-full"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).style.display = "none";
+                              }}
+                            />
+                          ) : (
+                            <div className="h-6 w-6 rounded-full bg-primary/15 grid place-items-center text-primary">
+                              <Globe className="h-3.5 w-3.5" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium truncate">{c.display_name}</div>
+                            <div className="text-[10px] text-muted-foreground font-mono">
+                              {c.channel_id} · receiver: {c.prefix}1…
+                            </div>
+                          </div>
+                          {channel === c.channel_id && (
+                            <Check className="h-4 w-4 text-primary shrink-0" />
+                          )}
+                        </button>
+                      ))
                     )}
-                  >
-                    <div className="font-medium">{p.label}</div>
-                    <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                      receiver: {p.prefix}1…
-                    </div>
-                  </button>
-                ))}
-              </div>
+                  </div>
+                </>
+              )}
             </div>
 
+            {/* Source Channel */}
             <div>
               <label className="text-xs uppercase tracking-wider text-muted-foreground">
                 Source Channel
@@ -143,6 +293,7 @@ function IbcTransferPage() {
               />
             </div>
 
+            {/* Receiver */}
             <div>
               <label className="text-xs uppercase tracking-wider text-muted-foreground">
                 Receiver Address (destination chain)
@@ -150,11 +301,12 @@ function IbcTransferPage() {
               <input
                 value={receiver}
                 onChange={(e) => setReceiver(e.target.value)}
-                placeholder="cosmos1... / osmo1..."
+                placeholder={selectedChannel ? `${selectedChannel.prefix}1…` : "cosmos1... / osmo1..."}
                 className="mt-1 w-full px-3 py-2 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm font-mono"
               />
             </div>
 
+            {/* Amount */}
             <div>
               <div className="flex items-center justify-between">
                 <label className="text-xs uppercase tracking-wider text-muted-foreground">
@@ -174,6 +326,7 @@ function IbcTransferPage() {
               />
             </div>
 
+            {/* Fee */}
             <div>
               <label className="text-xs uppercase tracking-wider text-muted-foreground">Fee</label>
               <div className="mt-1 grid grid-cols-3 gap-2">
@@ -201,6 +354,7 @@ function IbcTransferPage() {
               </div>
             </div>
 
+            {/* Memo */}
             <div>
               <label className="text-xs uppercase tracking-wider text-muted-foreground">
                 Memo (optional)
@@ -212,20 +366,39 @@ function IbcTransferPage() {
               />
             </div>
 
+            {/* Summary */}
             <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs space-y-1">
               <Row label="From" value={shorten(address ?? "—", 12, 8)} />
               <Row label="To" value={shorten(receiver || "—", 12, 8)} />
-              <Row label="Channel" value={channel} />
+              <Row
+                label="Destination"
+                value={selectedChannel ? selectedChannel.display_name : channel || "—"}
+              />
+              <Row label="Channel" value={channel || "—"} />
               <Row label="Amount" value={`${amount || "0"} ${defaultNetwork.coinDenom}`} />
               <Row label="Network Fee" value={formatAmount(fee.raw, { precision: 6 })} />
             </div>
 
             <button
               onClick={submit}
-              className="w-full bg-gradient-primary text-primary-foreground rounded-lg py-2.5 text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 shadow-glow"
+              disabled={!channel || !receiver || !amount}
+              className="w-full bg-gradient-primary text-primary-foreground rounded-lg py-2.5 text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 shadow-glow disabled:opacity-50"
             >
               {address ? "Send via IBC" : "Connect Wallet"} <ArrowRight className="h-4 w-4" />
             </button>
+
+            {/* Powered by Chain Registry */}
+            <p className="text-[10px] text-muted-foreground text-center">
+              IBC channel data from{" "}
+              <a
+                href="https://github.com/cosmos/chain-registry"
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary hover:underline inline-flex items-center gap-1"
+              >
+                Cosmos Chain Registry <ExternalLink className="h-2.5 w-2.5" />
+              </a>
+            </p>
           </div>
         )}
 
@@ -271,7 +444,11 @@ function IbcTransferPage() {
                   </a>
                 )}
                 <button
-                  onClick={() => setStep("form")}
+                  onClick={() => {
+                    setStep("form");
+                    setHash(null);
+                    setErr(null);
+                  }}
                   className="mt-2 px-4 py-2 rounded-lg bg-gradient-primary text-primary-foreground text-sm"
                 >
                   Send another
