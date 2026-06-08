@@ -47,7 +47,7 @@ const NAV: Array<{ to: string; label: string; icon: typeof LayoutDashboard; exac
   { to: "/transactions", label: "Txs", icon: ArrowRightLeft },
   { to: "/consensus", label: "Consensus", icon: Zap },
   { to: "/uptime", label: "Uptime", icon: Activity },
-  { to: "/ibc-transfer", label: "IBC Transfer", icon: Globe },
+  { to: "/ibc", label: "IBC", icon: Globe },
   { to: "/proposals", label: "Proposals", icon: Vote },
   { to: "/cosmwasm", label: "CosmWasm", icon: Coins },
   { to: "/parameters", label: "Parameters", icon: SlidersHorizontal },
