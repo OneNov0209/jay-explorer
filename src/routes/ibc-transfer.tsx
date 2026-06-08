@@ -54,87 +54,91 @@ function IbcTransferPage() {
   const [err, setErr] = useState<string | null>(null);
   const [searchQ, setSearchQ] = useState("");
 
-  // Fetch IBC channels dari Chain Registry
+  // Fetch IBC channels dari Chain Registry — per-file (cosmoshub-thejaynetwork.json, dll)
   const { data: ibcChannels, isLoading: channelsLoading } = useQuery({
     queryKey: ["ibc-channels"],
     queryFn: async (): Promise<IbcChannel[]> => {
       try {
-        // Fetch dari Chain Registry _IBC
-        const res = await fetch(
-          `https://raw.githubusercontent.com/cosmos/chain-registry/master/_IBC/${defaultNetwork.chainId}-1.json`,
+        // Fetch list file IBC yang mengandung "thejaynetwork"
+        const listRes = await fetch(
+          "https://api.github.com/repos/cosmos/chain-registry/contents/_IBC",
         );
-        if (!res.ok) throw new Error("IBC data not found");
-        const data = await res.json();
+        if (!listRes.ok) throw new Error("Cannot fetch IBC directory");
+        const files: Array<{ name: string }> = await listRes.json();
 
-        // Fetch chain names dari Chain Registry
-        const chainNamesRes = await fetch(
-          "https://raw.githubusercontent.com/cosmos/chain-registry/master/_IBC/chain-names.json",
-        );
-        const chainNames = chainNamesRes.ok ? await chainNamesRes.json() : {};
+        // Filter file yang mengandung "thejaynetwork" (format: {chain}-thejaynetwork.json)
+        const jayFiles = files.filter((f) => f.name.includes("thejaynetwork"));
 
         const channels: IbcChannel[] = [];
 
-        // Loop semua channel di _IBC data
-        for (const ch of data.channels ?? []) {
-          const jayChainKey =
-            ch.chain_1?.chain_name === "thejaynetwork" ? "chain_1" : "chain_2";
-          const counterChainKey =
-            jayChainKey === "chain_1" ? "chain_2" : "chain_1";
-
-          const jayChannel = ch[jayChainKey]?.channel_id;
-          const counterChannel = ch[counterChainKey]?.channel_id;
-          const counterChainName = ch[counterChainKey]?.chain_name;
-
-          if (!jayChannel || !counterChainName) continue;
-
-          const displayName =
-            chainNames[counterChainName] || counterChainName.replace(/(^\w|-\w)/g, (c: string) => c.replace("-", " ").toUpperCase());
-
-          // Fetch chain logo dari Chain Registry
-          let logo = "";
+        for (const file of jayFiles) {
           try {
-            const chainRes = await fetch(
-              `https://raw.githubusercontent.com/cosmos/chain-registry/master/${counterChainName}/chain.json`,
+            const res = await fetch(
+              `https://raw.githubusercontent.com/cosmos/chain-registry/master/_IBC/${file.name}`,
             );
-            if (chainRes.ok) {
-              const chainData = await chainRes.json();
-              logo = chainData?.images?.[0]?.png || chainData?.images?.[0]?.svg || "";
-            }
-          } catch {
-            logo = "";
-          }
+            if (!res.ok) continue;
+            const data = await res.json();
 
-          // Tentukan prefix dari chain registry
-          let prefix = "";
-          try {
-            const assetRes = await fetch(
-              `https://raw.githubusercontent.com/cosmos/chain-registry/master/${counterChainName}/assetlist.json`,
-            );
-            if (assetRes.ok) {
-              const assetData = await assetRes.json();
-              prefix = assetData?.assets?.[0]?.address?.split("1")[0] || counterChainName.slice(0, 4);
-            }
-          } catch {
-            prefix = counterChainName.slice(0, 4);
-          }
+            // Tentukan siapa chain Jay dan siapa counterparty
+            const jayKey =
+              data.chain_1?.chain_name === "thejaynetwork" ? "chain_1" : "chain_2";
+            const counterKey = jayKey === "chain_1" ? "chain_2" : "chain_1";
 
-          channels.push({
-            chain_name: counterChainName,
-            display_name: displayName,
-            logo,
-            channel_id: jayChannel,
-            prefix: prefix || counterChainName.slice(0, 4),
-            counter_chain_id: ch[counterChainKey]?.chain_id || "",
-          });
+            const jayChannel = data[jayKey]?.channel_id;
+            const counterChain = data[counterKey]?.chain_name;
+
+            if (!jayChannel || !counterChain) continue;
+
+            // Fetch chain name dari chain registry
+            let displayName = counterChain;
+            let logo = "";
+            let prefix = "";
+
+            try {
+              const chainRes = await fetch(
+                `https://raw.githubusercontent.com/cosmos/chain-registry/master/${counterChain}/chain.json`,
+              );
+              if (chainRes.ok) {
+                const chainData = await chainRes.json();
+                displayName =
+                  chainData?.pretty_name || chainData?.chain_name || counterChain;
+                logo =
+                  chainData?.images?.[0]?.png ||
+                  chainData?.images?.[0]?.svg ||
+                  "";
+              }
+            } catch {}
+
+            try {
+              const assetRes = await fetch(
+                `https://raw.githubusercontent.com/cosmos/chain-registry/master/${counterChain}/assetlist.json`,
+              );
+              if (assetRes.ok) {
+                const assetData = await assetRes.json();
+                prefix = assetData?.assets?.[0]?.address?.split("1")[0] || "";
+              }
+            } catch {}
+
+            channels.push({
+              chain_name: counterChain,
+              display_name: displayName || counterChain,
+              logo,
+              channel_id: jayChannel,
+              prefix: prefix || counterChain.slice(0, 4),
+              counter_chain_id: data[counterKey]?.chain_id || "",
+            });
+          } catch {}
         }
 
-        return channels.sort((a, b) => a.display_name.localeCompare(b.display_name));
+        return channels.sort((a, b) =>
+          a.display_name.localeCompare(b.display_name),
+        );
       } catch (e) {
-        console.warn("Failed to fetch IBC channels from Chain Registry:", e);
+        console.warn("Failed to fetch IBC channels:", e);
         return [];
       }
     },
-    staleTime: 30 * 60_000, // 30 menit cache
+    staleTime: 30 * 60_000,
     refetchInterval: 30 * 60_000,
     placeholderData: (prev) => prev,
   });
@@ -184,7 +188,8 @@ function IbcTransferPage() {
         },
         tier,
       );
-      if (res.code && res.code !== 0) throw new Error(res.rawLog || `Code ${res.code}`);
+      if (res.code && res.code !== 0)
+        throw new Error(res.rawLog || `Code ${res.code}`);
       setHash(res.transactionHash);
       setStep("done");
       toast.success("IBC transfer broadcasted");
@@ -233,7 +238,9 @@ function IbcTransferPage() {
                   <div className="mt-2 max-h-48 overflow-y-auto border border-border rounded-lg divide-y divide-border">
                     {filteredChannels.length === 0 ? (
                       <div className="p-4 text-center text-xs text-muted-foreground">
-                        No chains found
+                        {ibcChannels && ibcChannels.length > 0
+                          ? "No matching chains"
+                          : "No IBC channels found. Try manual input below."}
                       </div>
                     ) : (
                       filteredChannels.map((c) => (
@@ -246,7 +253,8 @@ function IbcTransferPage() {
                           }}
                           className={cn(
                             "w-full flex items-center gap-3 px-3 py-2.5 text-left transition hover:bg-accent/30",
-                            channel === c.channel_id && "bg-primary/10 border-l-2 border-primary",
+                            channel === c.channel_id &&
+                              "bg-primary/10 border-l-2 border-primary",
                           )}
                         >
                           {c.logo ? (
@@ -264,7 +272,9 @@ function IbcTransferPage() {
                             </div>
                           )}
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium truncate">{c.display_name}</div>
+                            <div className="text-sm font-medium truncate">
+                              {c.display_name}
+                            </div>
                             <div className="text-[10px] text-muted-foreground font-mono">
                               {c.channel_id} · receiver: {c.prefix}1…
                             </div>
@@ -301,7 +311,11 @@ function IbcTransferPage() {
               <input
                 value={receiver}
                 onChange={(e) => setReceiver(e.target.value)}
-                placeholder={selectedChannel ? `${selectedChannel.prefix}1…` : "cosmos1... / osmo1..."}
+                placeholder={
+                  selectedChannel
+                    ? `${selectedChannel.prefix}1…`
+                    : "cosmos1... / osmo1..."
+                }
                 className="mt-1 w-full px-3 py-2 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm font-mono"
               />
             </div>
@@ -320,7 +334,9 @@ function IbcTransferPage() {
                 type="text"
                 inputMode="decimal"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+                onChange={(e) =>
+                  setAmount(e.target.value.replace(/[^0-9.]/g, ""))
+                }
                 placeholder="0.00"
                 className="mt-1 w-full px-3 py-2 rounded-lg bg-background border border-border focus:border-primary focus:outline-none text-sm font-mono"
               />
@@ -328,7 +344,9 @@ function IbcTransferPage() {
 
             {/* Fee */}
             <div>
-              <label className="text-xs uppercase tracking-wider text-muted-foreground">Fee</label>
+              <label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Fee
+              </label>
               <div className="mt-1 grid grid-cols-3 gap-2">
                 {(["low", "average", "high"] as FeeTier[]).map((t) => {
                   const f = estimateFee(t, 250_000);
@@ -372,11 +390,19 @@ function IbcTransferPage() {
               <Row label="To" value={shorten(receiver || "—", 12, 8)} />
               <Row
                 label="Destination"
-                value={selectedChannel ? selectedChannel.display_name : channel || "—"}
+                value={
+                  selectedChannel ? selectedChannel.display_name : channel || "—"
+                }
               />
               <Row label="Channel" value={channel || "—"} />
-              <Row label="Amount" value={`${amount || "0"} ${defaultNetwork.coinDenom}`} />
-              <Row label="Network Fee" value={formatAmount(fee.raw, { precision: 6 })} />
+              <Row
+                label="Amount"
+                value={`${amount || "0"} ${defaultNetwork.coinDenom}`}
+              />
+              <Row
+                label="Network Fee"
+                value={formatAmount(fee.raw, { precision: 6 })}
+              />
             </div>
 
             <button
@@ -384,7 +410,8 @@ function IbcTransferPage() {
               disabled={!channel || !receiver || !amount}
               className="w-full bg-gradient-primary text-primary-foreground rounded-lg py-2.5 text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 shadow-glow disabled:opacity-50"
             >
-              {address ? "Send via IBC" : "Connect Wallet"} <ArrowRight className="h-4 w-4" />
+              {address ? "Send via IBC" : "Connect Wallet"}{" "}
+              <ArrowRight className="h-4 w-4" />
             </button>
 
             {/* Powered by Chain Registry */}
