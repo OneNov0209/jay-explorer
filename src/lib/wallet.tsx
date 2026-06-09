@@ -36,6 +36,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
     const walletKey = walletType === "jay" ? "jay" : "keplr";
     const wallet = walletType === "jay" ? (window.jayWallet || window.jay) : window.keplr;
+
     if (!wallet) {
       const name = walletType === "jay" ? "Jay Wallet" : "Keplr";
       toast.error(`${name} not found`, {
@@ -44,47 +45,30 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       if (walletType === "keplr") {
         window.open("https://www.keplr.app/get", "_blank");
       } else {
-        window.open("https://chromewebstore.google.com/detail/jay-wallet/gompejfhhmcbpollmkmkppaanbgcnbhg", "_blank");
+        window.open(
+          "https://chromewebstore.google.com/detail/jay-wallet/gompejfhhmcbpollmkmkppaanbgcnbhg",
+          "_blank",
+        );
       }
       return;
     }
 
     setConnecting(true);
     try {
-      // Suggest chain to wallet
+      // Suggest chain — pakai experimentalSuggestChain buat kedua wallet
       try {
-        if (walletType === "keplr") {
-          await wallet.experimentalSuggestChain({
-            chainId: defaultNetwork.chainId,
-            chainName: defaultNetwork.displayName,
-            rpc: defaultNetwork.rpcs[0],
-            rest: defaultNetwork.apis[0],
-            bip44: defaultNetwork.bip44,
-            bech32Config: defaultNetwork.bech32Config,
-            currencies: defaultNetwork.currencies,
-            feeCurrencies: defaultNetwork.feeCurrencies,
-            stakeCurrency: defaultNetwork.stakeCurrency,
-            features: defaultNetwork.features,
-          });
-        } else {
-          // Jay Wallet — coba suggest chain kalau support, kalau gak, skip
-          try {
-            await wallet.suggestChain({
-              chainId: defaultNetwork.chainId,
-              chainName: defaultNetwork.displayName,
-              rpc: defaultNetwork.rpcs[0],
-              rest: defaultNetwork.apis[0],
-              bip44: defaultNetwork.bip44,
-              bech32Config: defaultNetwork.bech32Config,
-              currencies: defaultNetwork.currencies,
-              feeCurrencies: defaultNetwork.feeCurrencies,
-              stakeCurrency: defaultNetwork.stakeCurrency,
-              features: defaultNetwork.features,
-            });
-          } catch {
-            console.warn("Jay Wallet suggestChain failed, trying enable only");
-          }
-        }
+        await wallet.experimentalSuggestChain({
+          chainId: defaultNetwork.chainId,
+          chainName: defaultNetwork.displayName,
+          rpc: defaultNetwork.rpcs[0],
+          rest: defaultNetwork.apis[0],
+          bip44: defaultNetwork.bip44,
+          bech32Config: defaultNetwork.bech32Config,
+          currencies: defaultNetwork.currencies,
+          feeCurrencies: defaultNetwork.feeCurrencies,
+          stakeCurrency: defaultNetwork.stakeCurrency,
+          features: defaultNetwork.features,
+        });
       } catch (e) {
         console.warn("suggestChain failed", e);
       }
@@ -116,7 +100,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === "undefined") return;
     const walletType = localStorage.getItem("jay-wallet-type") as "keplr" | "jay" | null;
     if (walletType) {
-      const wallet = walletType === "jay" ? (window.jayWallet || window.jay) : window.keplr;
+      const wallet =
+        walletType === "jay" ? window.jayWallet || window.jay : window.keplr;
       if (wallet) {
         connect(walletType);
       }
