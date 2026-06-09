@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { defaultNetwork } from "@/data/networks";
-import { useWallet } from "@/lib/wallet";
+import { useWallet, KEPLR_LOGO, JAY_LOGO } from "@/lib/wallet";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { rpc, lcd, safe } from "@/lib/cosmos";
 import { shorten, formatAmount } from "@/lib/format";
@@ -39,7 +39,13 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 const ONENOV_LOGO =
   "https://raw.githubusercontent.com/OneNov0209/logo/refs/heads/main/logo-OneNov.png";
 
-const NAV: Array<{ to: string; label: string; icon: typeof LayoutDashboard; exact?: boolean; requireAddress?: boolean }> = [
+const NAV: Array<{
+  to: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  exact?: boolean;
+  requireAddress?: boolean;
+}> = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/accounts", label: "Account", icon: User, requireAddress: true },
   { to: "/validators", label: "Validators", icon: Shield },
@@ -89,7 +95,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     placeholderData: keepPreviousData,
   });
   const walletAmount =
-    (walletBal as any)?.balances?.find((b: any) => b.denom === defaultNetwork.denom)?.amount ?? "0";
+    (walletBal as any)?.balances?.find((b: any) => b.denom === defaultNetwork.denom)?.amount ??
+    "0";
 
   const { data: walletRewards } = useQuery({
     queryKey: ["wallet-rewards-header", address],
@@ -107,8 +114,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     .map((r: any) => r.validator_address);
   const totalRewardsUjay = Math.floor(
     Number(
-      (walletRewards as any)?.total?.find((t: any) => t.denom === defaultNetwork.denom)
-        ?.amount ?? 0,
+      (walletRewards as any)?.total?.find((t: any) => t.denom === defaultNetwork.denom)?.amount ??
+        0,
     ),
   );
 
@@ -275,7 +282,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Mobile Drawer */}
       <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-        <SheetContent side="left" className="p-0 w-72 bg-sidebar border-sidebar-border flex flex-col">
+        <SheetContent
+          side="left"
+          className="p-0 w-72 bg-sidebar border-sidebar-border flex flex-col"
+        >
           <SidebarContent onNavigate={() => setDrawerOpen(false)} />
         </SheetContent>
       </Sheet>
@@ -323,14 +333,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
             <ThemeToggle />
 
-            {/* Connect Keplr — top right */}
+            {/* Connect Wallet Dropdown */}
             {address ? (
               <div className="flex items-center gap-2 rounded-lg border border-border bg-card pl-2 pr-1 py-1">
-                <img
-                  src="https://raw.githubusercontent.com/OneNov0209/logo/refs/heads/main/keplr.png"
-                  alt="Keplr"
-                  className="h-5 w-5 rounded"
-                />
+                <img src={KEPLR_LOGO} alt="Wallet" className="h-5 w-5 rounded" />
                 <div className="leading-tight hidden sm:block">
                   <div className="text-[11px] font-medium truncate max-w-[140px]">{name}</div>
                   <div className="text-[10px] font-mono text-muted-foreground">
@@ -338,7 +344,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   </div>
                 </div>
                 <div className="hidden md:flex flex-col items-end px-2 border-l border-border ml-1">
-                  <div className="text-[9px] uppercase tracking-wider text-muted-foreground">Balance</div>
+                  <div className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                    Balance
+                  </div>
                   <div className="text-[11px] font-mono font-semibold text-primary">
                     {formatAmount(walletAmount, { precision: 4 })}
                   </div>
@@ -378,14 +386,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </button>
               </div>
             ) : (
-              <button
-                onClick={connect}
-                disabled={connecting}
-                className="bg-gradient-primary text-primary-foreground rounded-lg h-10 px-3 sm:px-4 text-sm font-medium flex items-center gap-2 hover:opacity-90 transition shadow-glow disabled:opacity-60"
-              >
-                <Wallet className="h-4 w-4" />
-                <span className="hidden sm:inline">{connecting ? "Connecting…" : "Connect Keplr"}</span>
-              </button>
+              <WalletDropdown connect={connect} connecting={connecting} />
             )}
           </div>
         </header>
@@ -409,8 +410,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground max-w-md leading-relaxed">
-                A Cosmos SDK powered chain with CosmWasm smart contracts and IBC
-                interoperability — explore blocks, validators, governance and supply.
+                A Cosmos SDK powered chain with CosmWasm smart contracts and IBC interoperability
+                — explore blocks, validators, governance and supply.
               </p>
             </div>
 
@@ -434,7 +435,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <div className="px-4 md:px-8 py-4 border-t border-border text-[11px] text-muted-foreground flex flex-wrap items-center justify-between gap-2">
-            <div>© {new Date().getFullYear()} {defaultNetwork.displayName}. All rights reserved.</div>
+            <div>
+              © {new Date().getFullYear()} {defaultNetwork.displayName}. All rights reserved.
+            </div>
             <a
               href="https://onenov.xyz"
               target="_blank"
@@ -456,6 +459,58 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             validatorAddrs={rewardValidators}
             totalRewardsUjay={totalRewardsUjay}
           />
+        </>
+      )}
+    </div>
+  );
+}
+
+function WalletDropdown({
+  connect,
+  connecting,
+}: {
+  connect: (walletType?: "keplr" | "jay") => Promise<void>;
+  connecting: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        disabled={connecting}
+        className="bg-gradient-primary text-primary-foreground rounded-lg h-10 px-3 sm:px-4 text-sm font-medium flex items-center gap-2 hover:opacity-90 transition shadow-glow disabled:opacity-60"
+      >
+        <Wallet className="h-4 w-4" />
+        <span className="hidden sm:inline">
+          {connecting ? "Connecting…" : "Connect Wallet"}
+        </span>
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-2 w-56 bg-card border border-border rounded-xl shadow-xl z-20 overflow-hidden">
+            <button
+              onClick={() => {
+                setOpen(false);
+                connect("keplr");
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent/40 transition text-sm"
+            >
+              <img src={KEPLR_LOGO} alt="Keplr" className="h-6 w-6 rounded" />
+              Keplr Wallet
+            </button>
+            <button
+              onClick={() => {
+                setOpen(false);
+                connect("jay");
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent/40 transition text-sm border-t border-border"
+            >
+              <img src={JAY_LOGO} alt="Jay Wallet" className="h-6 w-6 rounded-full" />
+              Jay Wallet
+            </button>
+          </div>
         </>
       )}
     </div>
@@ -549,7 +604,9 @@ function LiveSyncCard({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="relative flex h-2 w-2">
-            <span className={`absolute inline-flex h-full w-full rounded-full ${status.color} opacity-60 animate-ping`} />
+            <span
+              className={`absolute inline-flex h-full w-full rounded-full ${status.color} opacity-60 animate-ping`}
+            />
             <span className={`relative inline-flex h-2 w-2 rounded-full ${status.color}`} />
           </span>
           <span className={`text-[11px] font-semibold uppercase tracking-wider ${status.text}`}>
@@ -561,13 +618,17 @@ function LiveSyncCard({
         </span>
       </div>
       <div className="flex items-center justify-between">
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Height</span>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          Height
+        </span>
         <span className="text-[11px] font-mono font-semibold text-sidebar-foreground tabular-nums">
           #{height ? Number(height).toLocaleString() : "—"}
         </span>
       </div>
       <div className="flex items-center justify-between">
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Block</span>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          Block
+        </span>
         <span className="text-[10px] font-mono text-muted-foreground">
           ~{defaultNetwork.blockTime}s
         </span>
@@ -605,7 +666,7 @@ function LandingNav({
 }: {
   address: string | null;
   name: string | null;
-  connect: () => void;
+  connect: (walletType?: "keplr" | "jay") => Promise<void>;
   connecting: boolean;
   disconnect: () => void;
 }) {
@@ -615,18 +676,47 @@ function LandingNav({
         <Link to="/" className="flex items-center gap-3 group">
           <div className="relative">
             <span className="absolute inset-0 rounded-full bg-primary/40 blur-md group-hover:bg-primary/60 transition" />
-            <img src={defaultNetwork.logo} alt="" className="relative h-9 w-9 rounded-full ring-2 ring-primary/40" />
+            <img
+              src={defaultNetwork.logo}
+              alt=""
+              className="relative h-9 w-9 rounded-full ring-2 ring-primary/40"
+            />
           </div>
           <div className="leading-tight">
             <div className="text-sm font-bold">{defaultNetwork.displayName}</div>
-            <div className="text-[10px] font-mono text-muted-foreground">{defaultNetwork.chainId}</div>
+            <div className="text-[10px] font-mono text-muted-foreground">
+              {defaultNetwork.chainId}
+            </div>
           </div>
         </Link>
         <nav className="hidden md:flex items-center gap-1 ml-6 text-sm">
-          <a href="#stats" onClick={landingScroll("stats")} className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/40 transition cursor-pointer">Stats</a>
-          <a href="#explore" onClick={landingScroll("explore")} className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/40 transition cursor-pointer">Explore</a>
-          <a href="#ecosystem" onClick={landingScroll("ecosystem")} className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/40 transition cursor-pointer">Ecosystem</a>
-          <Link to="/dashboard" className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/40 transition">Dashboard</Link>
+          <a
+            href="#stats"
+            onClick={landingScroll("stats")}
+            className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/40 transition cursor-pointer"
+          >
+            Stats
+          </a>
+          <a
+            href="#explore"
+            onClick={landingScroll("explore")}
+            className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/40 transition cursor-pointer"
+          >
+            Explore
+          </a>
+          <a
+            href="#ecosystem"
+            onClick={landingScroll("ecosystem")}
+            className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/40 transition cursor-pointer"
+          >
+            Ecosystem
+          </a>
+          <Link
+            to="/dashboard"
+            className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/40 transition"
+          >
+            Dashboard
+          </Link>
         </nav>
         <div className="flex-1" />
         <ThemeToggle />
@@ -642,17 +732,19 @@ function LandingNav({
             className="inline-flex items-center gap-2 h-10 px-3 rounded-lg border border-border bg-card hover:bg-accent/40 text-sm"
             title={name ?? ""}
           >
-            <Wallet className="h-4 w-4 text-primary" />
+            <img src={KEPLR_LOGO} className="h-4 w-4 rounded" />
             <span className="font-mono text-xs">{shorten(address, 5, 4)}</span>
           </button>
         ) : (
           <button
-            onClick={connect}
+            onClick={() => connect("keplr")}
             disabled={connecting}
             className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-primary/40 text-primary hover:bg-primary/10 text-sm font-medium disabled:opacity-60"
           >
             <Wallet className="h-4 w-4" />
-            <span className="hidden sm:inline">{connecting ? "Connecting…" : "Connect"}</span>
+            <span className="hidden sm:inline">
+              {connecting ? "Connecting…" : "Connect"}
+            </span>
           </button>
         )}
       </div>
@@ -667,34 +759,76 @@ function LandingFooter() {
       <div className="relative px-4 md:px-8 py-12 grid gap-10 md:grid-cols-4">
         <div className="md:col-span-2 space-y-4">
           <div className="flex items-center gap-3">
-            <img src={defaultNetwork.logo} alt="" className="h-10 w-10 rounded-full ring-2 ring-primary/40" />
+            <img
+              src={defaultNetwork.logo}
+              alt=""
+              className="h-10 w-10 rounded-full ring-2 ring-primary/40"
+            />
             <div>
               <div className="font-bold text-foreground">{defaultNetwork.displayName}</div>
-              <div className="text-[11px] text-muted-foreground font-mono">{defaultNetwork.chainId}</div>
+              <div className="text-[11px] text-muted-foreground font-mono">
+                {defaultNetwork.chainId}
+              </div>
             </div>
           </div>
           <p className="text-xs text-muted-foreground max-w-md leading-relaxed">
             A Cosmos SDK powered chain with CosmWasm smart contracts and IBC interoperability —
-            explore blocks, validators, governance and supply with a beautiful, real-time interface.
+            explore blocks, validators, governance and supply with a beautiful, real-time
+            interface.
           </p>
           <div className="flex flex-wrap gap-2 pt-2">
-            <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border border-border bg-card/60 text-muted-foreground">Cosmos SDK</span>
-            <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border border-border bg-card/60 text-muted-foreground">CosmWasm</span>
-            <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border border-border bg-card/60 text-muted-foreground">IBC</span>
+            <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border border-border bg-card/60 text-muted-foreground">
+              Cosmos SDK
+            </span>
+            <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border border-border bg-card/60 text-muted-foreground">
+              CosmWasm
+            </span>
+            <span className="text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border border-border bg-card/60 text-muted-foreground">
+              IBC
+            </span>
           </div>
         </div>
 
         <div className="space-y-2 text-xs">
-          <div className="font-semibold text-foreground uppercase tracking-wider text-[11px]">Explore</div>
-          <Link to="/dashboard" className="block text-muted-foreground hover:text-primary transition">Dashboard</Link>
-          <Link to="/validators" className="block text-muted-foreground hover:text-primary transition">Validators</Link>
-          <Link to="/blocks" className="block text-muted-foreground hover:text-primary transition">Blocks</Link>
-          <Link to="/proposals" className="block text-muted-foreground hover:text-primary transition">Proposals</Link>
-          <Link to="/ibc-transfer" className="block text-muted-foreground hover:text-primary transition">IBC Transfer</Link>
+          <div className="font-semibold text-foreground uppercase tracking-wider text-[11px]">
+            Explore
+          </div>
+          <Link
+            to="/dashboard"
+            className="block text-muted-foreground hover:text-primary transition"
+          >
+            Dashboard
+          </Link>
+          <Link
+            to="/validators"
+            className="block text-muted-foreground hover:text-primary transition"
+          >
+            Validators
+          </Link>
+          <Link
+            to="/blocks"
+            className="block text-muted-foreground hover:text-primary transition"
+          >
+            Blocks
+          </Link>
+          <Link
+            to="/proposals"
+            className="block text-muted-foreground hover:text-primary transition"
+          >
+            Proposals
+          </Link>
+          <Link
+            to="/ibc"
+            className="block text-muted-foreground hover:text-primary transition"
+          >
+            IBC
+          </Link>
         </div>
 
         <div className="space-y-2 text-xs">
-          <div className="font-semibold text-foreground uppercase tracking-wider text-[11px]">Ecosystem</div>
+          <div className="font-semibold text-foreground uppercase tracking-wider text-[11px]">
+            Ecosystem
+          </div>
           <FooterLink href="https://thejaynetwork.com/">Website</FooterLink>
           <FooterLink href="https://github.com/bbtccore/thejaynetwork">GitHub</FooterLink>
           <FooterLink href="https://pixture.thejaynetwork.com/">Pixture</FooterLink>
@@ -703,12 +837,18 @@ function LandingFooter() {
         </div>
       </div>
       <div className="relative px-4 md:px-8 py-4 border-t border-border text-[11px] text-muted-foreground flex flex-wrap items-center justify-between gap-2">
-        <div>© {new Date().getFullYear()} {defaultNetwork.displayName}. All rights reserved.</div>
-        <a href="https://onenov.xyz" target="_blank" rel="noreferrer" className="hover:text-primary transition inline-flex items-center gap-1">
+        <div>
+          © {new Date().getFullYear()} {defaultNetwork.displayName}. All rights reserved.
+        </div>
+        <a
+          href="https://onenov.xyz"
+          target="_blank"
+          rel="noreferrer"
+          className="hover:text-primary transition inline-flex items-center gap-1"
+        >
           Built with care by OneNov <ExternalLink className="h-3 w-3" />
         </a>
       </div>
     </footer>
   );
 }
-
