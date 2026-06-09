@@ -16,7 +16,16 @@ declare global {
   interface Window {
     keplr?: any;
     jay?: any;
-    jayWallet?: any;
+    jayWallet?: {
+      isJayWallet: boolean;
+      version: string;
+      connect: () => Promise<{ address: string }>;
+      getAddress: () => Promise<string>;
+      isConnected: () => Promise<boolean>;
+      signAndBroadcast: (...args: any[]) => Promise<any>;
+      sendTokens: (...args: any[]) => Promise<any>;
+      on: (event: string, callback: (...args: any[]) => void) => void;
+    };
     getOfflineSigner?: any;
   }
 }
@@ -35,44 +44,65 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === "undefined") return;
 
     const walletKey = walletType === "jay" ? "jay" : "keplr";
-    const wallet = walletType === "jay" ? (window.jayWallet || window.jay) : window.keplr;
 
-    if (!wallet) {
-      const name = walletType === "jay" ? "Jay Wallet" : "Keplr";
-      toast.error(`${name} not found`, {
-        description: `Install ${name} extension first.`,
-      });
-      if (walletType === "keplr") {
-        window.open("https://www.keplr.app/get", "_blank");
-      } else {
+    if (walletType === "jay") {
+      // Jay Wallet — pakai API sendiri
+      const jay = window.jayWallet || window.jay;
+      if (!jay) {
+        toast.error("Jay Wallet not found", {
+          description: "Install Jay Wallet extension first.",
+        });
         window.open(
           "https://chromewebstore.google.com/detail/jay-wallet/gompejfhhmcbpollmkmkppaanbgcnbhg",
           "_blank",
         );
+        return;
       }
+
+      setConnecting(true);
+      try {
+        const result = await jay.connect();
+        const addr = result?.address || (await jay.getAddress());
+        setAddress(addr);
+        setName(addr ? addr.slice(0, 10) + "..." : "Jay Wallet");
+        localStorage.setItem("jay-wallet-type", walletKey);
+        localStorage.setItem("jay-wallet", walletKey);
+        toast.success(`Connected to Jay Wallet`);
+      } catch (e: any) {
+        toast.error("Connection failed", { description: e?.message ?? String(e) });
+      } finally {
+        setConnecting(false);
+      }
+      return;
+    }
+
+    // Keplr — pakai API Keplr
+    const wallet = window.keplr;
+    if (!wallet) {
+      toast.error("Keplr wallet not found", {
+        description: "Install Keplr extension first.",
+      });
+      window.open("https://www.keplr.app/get", "_blank");
       return;
     }
 
     setConnecting(true);
     try {
-      // Suggest chain — cuma buat Keplr
-      if (walletType === "keplr") {
-        try {
-          await wallet.experimentalSuggestChain({
-            chainId: defaultNetwork.chainId,
-            chainName: defaultNetwork.displayName,
-            rpc: defaultNetwork.rpcs[0],
-            rest: defaultNetwork.apis[0],
-            bip44: defaultNetwork.bip44,
-            bech32Config: defaultNetwork.bech32Config,
-            currencies: defaultNetwork.currencies,
-            feeCurrencies: defaultNetwork.feeCurrencies,
-            stakeCurrency: defaultNetwork.stakeCurrency,
-            features: defaultNetwork.features,
-          });
-        } catch (e) {
-          console.warn("suggestChain failed", e);
-        }
+      try {
+        await wallet.experimentalSuggestChain({
+          chainId: defaultNetwork.chainId,
+          chainName: defaultNetwork.displayName,
+          rpc: defaultNetwork.rpcs[0],
+          rest: defaultNetwork.apis[0],
+          bip44: defaultNetwork.bip44,
+          bech32Config: defaultNetwork.bech32Config,
+          currencies: defaultNetwork.currencies,
+          feeCurrencies: defaultNetwork.feeCurrencies,
+          stakeCurrency: defaultNetwork.stakeCurrency,
+          features: defaultNetwork.features,
+        });
+      } catch (e) {
+        console.warn("suggestChain failed", e);
       }
 
       await wallet.enable(defaultNetwork.chainId);
@@ -97,16 +127,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     toast("Wallet disconnected");
   }, []);
 
-  // Auto-reconnect on page load
   useEffect(() => {
     if (typeof window === "undefined") return;
     const walletType = localStorage.getItem("jay-wallet-type") as "keplr" | "jay" | null;
     if (walletType) {
-      const wallet =
-        walletType === "jay" ? window.jayWallet || window.jay : window.keplr;
-      if (wallet) {
-        connect(walletType);
-      }
+      connect(walletType);
     }
 
     const keplrHandler = () => {
