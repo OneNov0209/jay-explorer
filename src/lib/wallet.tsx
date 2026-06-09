@@ -16,6 +16,7 @@ declare global {
   interface Window {
     keplr?: any;
     jay?: any;
+    jayWallet?: any;
     getOfflineSigner?: any;
   }
 }
@@ -34,8 +35,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === "undefined") return;
 
     const walletKey = walletType === "jay" ? "jay" : "keplr";
-    const wallet = walletType === "jay" ? window.jay : window.keplr;
-
+    const wallet = walletType === "jay" ? (window.jayWallet || window.jay) : window.keplr;
     if (!wallet) {
       const name = walletType === "jay" ? "Jay Wallet" : "Keplr";
       toast.error(`${name} not found`, {
@@ -116,7 +116,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === "undefined") return;
     const walletType = localStorage.getItem("jay-wallet-type") as "keplr" | "jay" | null;
     if (walletType) {
-      const wallet = walletType === "jay" ? window.jay : window.keplr;
+      const wallet = walletType === "jay" ? (window.jayWallet || window.jay) : window.keplr;
       if (wallet) {
         connect(walletType);
       }
