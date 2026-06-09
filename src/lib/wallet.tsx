@@ -55,22 +55,24 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
     setConnecting(true);
     try {
-      // Suggest chain — pakai experimentalSuggestChain buat kedua wallet
-      try {
-        await wallet.experimentalSuggestChain({
-          chainId: defaultNetwork.chainId,
-          chainName: defaultNetwork.displayName,
-          rpc: defaultNetwork.rpcs[0],
-          rest: defaultNetwork.apis[0],
-          bip44: defaultNetwork.bip44,
-          bech32Config: defaultNetwork.bech32Config,
-          currencies: defaultNetwork.currencies,
-          feeCurrencies: defaultNetwork.feeCurrencies,
-          stakeCurrency: defaultNetwork.stakeCurrency,
-          features: defaultNetwork.features,
-        });
-      } catch (e) {
-        console.warn("suggestChain failed", e);
+      // Suggest chain — cuma buat Keplr
+      if (walletType === "keplr") {
+        try {
+          await wallet.experimentalSuggestChain({
+            chainId: defaultNetwork.chainId,
+            chainName: defaultNetwork.displayName,
+            rpc: defaultNetwork.rpcs[0],
+            rest: defaultNetwork.apis[0],
+            bip44: defaultNetwork.bip44,
+            bech32Config: defaultNetwork.bech32Config,
+            currencies: defaultNetwork.currencies,
+            feeCurrencies: defaultNetwork.feeCurrencies,
+            stakeCurrency: defaultNetwork.stakeCurrency,
+            features: defaultNetwork.features,
+          });
+        } catch (e) {
+          console.warn("suggestChain failed", e);
+        }
       }
 
       await wallet.enable(defaultNetwork.chainId);
@@ -107,7 +109,6 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // Keplr event listener
     const keplrHandler = () => {
       if (localStorage.getItem("jay-wallet-type") === "keplr") connect("keplr");
     };
