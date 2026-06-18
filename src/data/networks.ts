@@ -56,7 +56,7 @@ export const jayNetwork: NetworkConfig = {
   id: "jaynetwork",
   name: "jaynetwork",
   displayName: "Jay Network",
-  logo: "https://raw.githubusercontent.com/bbtccore/thejaynetwork/refs/heads/master/chain-registry/thejaynetwork/logo.png",
+  logo: "https://raw.githubusercontent.com/OneNov0209/logo/refs/heads/main/jay.png",
   chainType: "cosmos",
   type: "Mainnet",
   rpcs: [
