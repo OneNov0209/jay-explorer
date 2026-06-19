@@ -1,11 +1,11 @@
 // src/routes/tokens.tsx
 import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Card, Badge, Skeleton } from "@/components/shared/ui";
 import { defaultNetwork } from "@/data/networks";
 import { formatAmount, shorten } from "@/lib/format";
-import { Search, Coins, Star, ArrowUpRight, Globe } from "lucide-react";
+import { Search, Coins, Star, ArrowUpRight, Globe, Code } from "lucide-react";
 
 export const Route = createFileRoute("/tokens")({
   head: () => ({
@@ -24,14 +24,14 @@ function TokensRouteComponent() {
 
 function TokensPage() {
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState<"all" | "native" | "factory" | "ibc">("all");
+  const [tab, setTab] = useState<"all" | "native" | "factory" | "ibc" | "cw20">("all");
 
-  // Fetch ALL supply (native, IBC, token factory)
-  const { data: allSupply, isLoading } = useQuery({
+  // ====== FETCH: Supply (native, IBC, token factory) ======
+  const { data: allSupply, isLoading: supplyLoading } = useQuery({
     queryKey: ["all-token-supply"],
     queryFn: async () => {
       const api = defaultNetwork.apis[0];
-      const res = await fetch(`${api}/cosmos/bank/v1beta1/supply?pagination.limit=1000`);
+      const res = await fetch(`${api}/cosmos/bank/v1beta1/supply?pagination.limit=2000`);
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
       return (data.supply ?? []) as Array<{ denom: string; amount: string }>;
@@ -39,7 +39,7 @@ function TokensPage() {
     refetchInterval: 30_000,
   });
 
-  // Fetch metadata
+  // ====== FETCH: Metadata ======
   const { data: metadataList } = useQuery({
     queryKey: ["token-metadata"],
     queryFn: async () => {
@@ -52,7 +52,7 @@ function TokensPage() {
     refetchInterval: 30_000,
   });
 
-  // Fetch Chain Registry IBC asset list
+  // ====== FETCH: IBC Asset Map ======
   const { data: ibcAssetMap } = useQuery({
     queryKey: ["ibc-asset-map"],
     queryFn: async () => {
@@ -82,8 +82,75 @@ function TokensPage() {
     staleTime: 30 * 60_000,
   });
 
+  // ====== FETCH: CW20 Contracts ======
+  const { data: cw20Contracts } = useQuery({
+    queryKey: ["cw20-contracts"],
+    queryFn: async () => {
+      const api = defaultNetwork.apis[0];
+      // Ambil semua contract address
+      const res = await fetch(
+        `${api}/cosmwasm/wasm/v1/contract?pagination.limit=200`,
+      );
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data.contracts ?? []) as string[];
+    },
+    staleTime: 60_000,
+  });
+
+  // ====== FETCH: CW20 Token Info (query tiap contract) ======
+  const cw20Queries = useQueries({
+    queries: (cw20Contracts ?? []).slice(0, 50).map((contract: string) => ({
+      queryKey: ["cw20-token-info", contract],
+      queryFn: async () => {
+        const api = defaultNetwork.apis[0];
+        try {
+          const res = await fetch(
+            `${api}/cosmwasm/wasm/v1/contract/${contract}/smart/${btoa(JSON.stringify({ token_info: {} }))}`,
+          );
+          if (!res.ok) return null;
+          const data = await res.json();
+          if (!data.data) return null;
+          const info = JSON.parse(atob(data.data));
+          return {
+            contract,
+            name: info.name || "",
+            symbol: info.symbol || "",
+            decimals: info.decimals ?? 6,
+            totalSupply: info.total_supply || "0",
+          };
+        } catch {
+          return null;
+        }
+      },
+      staleTime: 60_000,
+      enabled: !!cw20Contracts,
+    })),
+  });
+
+  const cw20Tokens = useMemo(() => {
+    return cw20Queries
+      .filter((q) => q.data)
+      .map((q) => q.data!)
+      .filter((t) => t.name); // Hanya yang punya nama (token beneran)
+  }, [cw20Queries]);
+
+  // ====== MERGE ALL TOKENS ======
   const tokens = useMemo(() => {
-    if (!allSupply) return [];
+    const result: Array<{
+      denom: string;
+      displayName: string;
+      symbol: string;
+      description: string;
+      decimals: number;
+      totalSupply: string;
+      isNative: boolean;
+      isIBC: boolean;
+      isFactory: boolean;
+      isCw20: boolean;
+      logo: string;
+      contract?: string;
+    }> = [];
 
     const metaMap = new Map<string, any>();
     for (const m of metadataList ?? []) {
@@ -91,78 +158,98 @@ function TokensPage() {
       if (m.base) metaMap.set(m.base, m);
     }
 
-    return allSupply
-      .filter((s) => Number(s.amount) > 0) // Hanya token dengan supply > 0
-      .map((s) => {
-        const meta = metaMap.get(s.denom);
-        const isNative = s.denom === defaultNetwork.denom;
-        const isIBC = s.denom.startsWith("ibc/");
-        const isFactory = !isNative && !isIBC;
+    // Bank tokens (native, IBC, factory)
+    for (const s of allSupply ?? []) {
+      if (Number(s.amount) <= 0) continue;
+      const meta = metaMap.get(s.denom);
+      const isNative = s.denom === defaultNetwork.denom;
+      const isIBC = s.denom.startsWith("ibc/");
+      const isFactory = !isNative && !isIBC;
 
-        // Nama token: dari metadata, atau IBC mapping, atau denom mentah
-        let displayName = "";
-        let symbol = "";
-        let logo = "";
-        let description = "";
-        let decimals = 6;
+      let displayName = "";
+      let symbol = "";
+      let logo = "";
+      let description = "";
+      let decimals = 6;
 
-        if (meta) {
-          displayName = meta.display || meta.name || "";
-          symbol = meta.symbol || "";
-          description = meta.description || "";
-          decimals = meta.denom_units?.find((u: any) => u.denom === meta.display)?.exponent ?? 6;
+      if (meta) {
+        displayName = meta.display || meta.name || "";
+        symbol = meta.symbol || "";
+        description = meta.description || "";
+        decimals = meta.denom_units?.find((u: any) => u.denom === meta.display)?.exponent ?? 6;
+      }
+
+      if (isIBC && ibcAssetMap?.has(s.denom)) {
+        const ibc = ibcAssetMap.get(s.denom)!;
+        displayName = displayName || ibc.name;
+        symbol = symbol || ibc.symbol;
+        logo = logo || ibc.logo;
+        if (ibc.chain) description = description || `IBC token from ${ibc.chain}`;
+      }
+
+      if (!displayName) {
+        if (isNative) {
+          displayName = defaultNetwork.coinDenom;
+          symbol = defaultNetwork.coinDenom;
+          decimals = defaultNetwork.tokenDecimals;
+          logo = defaultNetwork.logo;
+        } else if (isFactory) {
+          const parts = s.denom.replace("factory/", "").split("/");
+          displayName = parts[parts.length - 1]?.toUpperCase() || s.denom.slice(0, 12) + "...";
+          symbol = displayName.slice(0, 6);
+        } else {
+          displayName = s.denom.slice(0, 12) + "...";
         }
+      }
 
-        if (isIBC && ibcAssetMap.has(s.denom)) {
-          const ibc = ibcAssetMap.get(s.denom)!;
-          displayName = displayName || ibc.name;
-          symbol = symbol || ibc.symbol;
-          logo = logo || ibc.logo;
-          if (ibc.chain) description = description || `IBC token from ${ibc.chain}`;
-        }
-
-        if (!displayName) {
-          if (isNative) {
-            displayName = defaultNetwork.coinDenom;
-            symbol = defaultNetwork.coinDenom;
-            decimals = defaultNetwork.tokenDecimals;
-          } else if (isFactory) {
-            // Token factory: ambil subdenom sebagai nama
-            const parts = s.denom.replace("factory/", "").split("/");
-            displayName = parts[parts.length - 1]?.toUpperCase() || s.denom.slice(0, 12) + "...";
-            symbol = displayName.slice(0, 6);
-          } else {
-            displayName = s.denom.slice(0, 12) + "...";
-          }
-        }
-
-        return {
-          denom: s.denom,
-          displayName,
-          symbol,
-          description,
-          decimals,
-          totalSupply: s.amount,
-          isNative,
-          isIBC,
-          isFactory,
-          logo,
-        };
-      })
-      .sort((a, b) => {
-        if (a.isNative) return -1;
-        if (b.isNative) return 1;
-        if (a.isIBC) return 1;
-        if (b.isIBC) return -1;
-        return a.displayName.localeCompare(b.displayName);
+      result.push({
+        denom: s.denom,
+        displayName,
+        symbol,
+        description,
+        decimals,
+        totalSupply: s.amount,
+        isNative,
+        isIBC,
+        isFactory,
+        isCw20: false,
+        logo,
       });
-  }, [allSupply, metadataList, ibcAssetMap]);
+    }
+
+    // CW20 tokens
+    for (const cw of cw20Tokens) {
+      result.push({
+        denom: cw.contract,
+        displayName: cw.name,
+        symbol: cw.symbol,
+        description: "CW20 Token",
+        decimals: cw.decimals,
+        totalSupply: cw.totalSupply,
+        isNative: false,
+        isIBC: false,
+        isFactory: false,
+        isCw20: true,
+        logo: "",
+        contract: cw.contract,
+      });
+    }
+
+    return result.sort((a, b) => {
+      if (a.isNative) return -1;
+      if (b.isNative) return 1;
+      if (a.isCw20 && !b.isCw20) return 1;
+      if (!a.isCw20 && b.isCw20) return -1;
+      return a.displayName.localeCompare(b.displayName);
+    });
+  }, [allSupply, metadataList, ibcAssetMap, cw20Tokens]);
 
   const filtered = useMemo(() => {
     let result = tokens;
     if (tab === "native") result = result.filter((t) => t.isNative);
     if (tab === "factory") result = result.filter((t) => t.isFactory);
     if (tab === "ibc") result = result.filter((t) => t.isIBC);
+    if (tab === "cw20") result = result.filter((t) => t.isCw20);
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(
@@ -178,6 +265,7 @@ function TokensPage() {
   const nativeCount = tokens.filter((t) => t.isNative).length;
   const factoryCount = tokens.filter((t) => t.isFactory).length;
   const ibcCount = tokens.filter((t) => t.isIBC).length;
+  const cw20Count = tokens.filter((t) => t.isCw20).length;
 
   return (
     <div className="space-y-6">
@@ -186,7 +274,7 @@ function TokensPage() {
           <Coins className="h-6 w-6 text-primary" /> Tokens
         </h1>
         <p className="text-sm text-muted-foreground">
-          All tokens on {defaultNetwork.displayName} — native, IBC, and factory tokens
+          All tokens on {defaultNetwork.displayName} — native, IBC, factory & CW20
         </p>
       </div>
 
@@ -198,6 +286,7 @@ function TokensPage() {
             { key: "native", label: "Native", count: nativeCount },
             { key: "factory", label: "Factory", count: factoryCount },
             { key: "ibc", label: "IBC", count: ibcCount },
+            { key: "cw20", label: "CW20", count: cw20Count },
           ] as const).map((t) => (
             <button
               key={t.key}
@@ -224,7 +313,7 @@ function TokensPage() {
       </div>
 
       {/* Token Grid */}
-      {isLoading ? (
+      {supplyLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-32 rounded-xl" />
@@ -261,10 +350,12 @@ function TokensPage() {
                             ? "bg-primary/15 text-primary"
                             : token.isIBC
                               ? "bg-success/15 text-success"
-                              : "bg-violet-500/15 text-violet-500"
+                              : token.isCw20
+                                ? "bg-cyan-500/15 text-cyan-500"
+                                : "bg-violet-500/15 text-violet-500"
                         }`}
                       >
-                        {token.isIBC ? <Globe className="h-5 w-5" /> : <Coins className="h-5 w-5" />}
+                        {token.isIBC ? <Globe className="h-5 w-5" /> : token.isCw20 ? <Code className="h-5 w-5" /> : <Coins className="h-5 w-5" />}
                       </div>
                     )}
                     <div>
@@ -296,6 +387,11 @@ function TokensPage() {
                   {token.isFactory && (
                     <Badge variant="muted" className="text-[10px]">
                       <Coins className="h-2.5 w-2.5 mr-1" /> Token Factory
+                    </Badge>
+                  )}
+                  {token.isCw20 && (
+                    <Badge variant="default" className="text-[10px] bg-cyan-500/20 text-cyan-400 border-cyan-500/30">
+                      <Code className="h-2.5 w-2.5 mr-1" /> CW20
                     </Badge>
                   )}
                 </div>
