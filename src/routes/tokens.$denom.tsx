@@ -6,12 +6,10 @@ import { Card, Badge, Skeleton } from "@/components/shared/ui";
 import { defaultNetwork } from "@/data/networks";
 import { formatAmount, shorten } from "@/lib/format";
 import { useWallet } from "@/lib/wallet";
-import { safe } from "@/lib/cosmos";
 import { sendTokens, estimateFee, type FeeTier } from "@/lib/tx";
 import {
   Coins,
   Star,
-  ExternalLink,
   Send,
   Check,
   Loader2,
@@ -43,27 +41,67 @@ function TokenDetailPage() {
   const [hash, setHash] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // Fetch token metadata
-  const { data: metadataList, isLoading } = useQuery({
+  // Fetch ALL supply (for this denom)
+  const { data: supply, isLoading: supplyLoading } = useQuery({
+    queryKey: ["token-supply", denom],
+    queryFn: async () => {
+      const api = defaultNetwork.apis[0];
+      // Coba by_denom dulu
+      let res = await fetch(`${api}/cosmos/bank/v1beta1/supply/by_denom?denom=${denom}`);
+      if (!res.ok) {
+        // Fallback ke supply list
+        res = await fetch(`${api}/cosmos/bank/v1beta1/supply?pagination.limit=1000`);
+        if (!res.ok) return { amount: { amount: "0" } };
+        const data = await res.json();
+        const found = (data.supply ?? []).find((s: any) => s.denom === denom);
+        return { amount: { amount: found?.amount ?? "0" } };
+      }
+      const data = await res.json();
+      return { amount: { amount: data.amount?.amount ?? "0" } };
+    },
+    refetchInterval: 30_000,
+  });
+
+  // Fetch metadata
+  const { data: metadataList, isLoading: metadataLoading } = useQuery({
     queryKey: ["token-metadata"],
     queryFn: async () => {
       const api = defaultNetwork.apis[0];
-      const res = await fetch(`${api}/cosmos/bank/v1beta1/denoms_metadata`);
+      const res = await fetch(`${api}/cosmos/bank/v1beta1/denoms_metadata?pagination.limit=500`);
+      if (!res.ok) return [];
       const data = await res.json();
       return (data.metadatas ?? []) as any[];
     },
   });
 
-  // Fetch supply
-  const { data: supply } = useQuery({
-    queryKey: ["token-supply", denom],
+  // Fetch Chain Registry IBC asset map
+  const { data: ibcAssetMap } = useQuery({
+    queryKey: ["ibc-asset-single", denom],
     queryFn: async () => {
-      const api = defaultNetwork.apis[0];
-      const res = await fetch(`${api}/cosmos/bank/v1beta1/supply/${denom}`);
-      if (!res.ok) return { amount: { amount: "0" } };
-      return res.json();
+      const map = new Map<string, { name: string; symbol: string; logo: string; chain: string }>();
+      try {
+        const res = await fetch(
+          `https://raw.githubusercontent.com/cosmos/chain-registry/master/thejaynetwork/assetlist.json`,
+        );
+        if (!res.ok) return map;
+        const data = await res.json();
+        for (const asset of data.assets ?? []) {
+          if (!asset.denom_units || asset.denom === "ujay") continue;
+          const ibcDenom = asset.denom_units.find((u: any) =>
+            u.denom.startsWith("ibc/"),
+          )?.denom || asset.denom;
+          const trace = asset.traces?.[0] || {};
+          map.set(ibcDenom, {
+            name: asset.name || ibcDenom,
+            symbol: asset.symbol || "",
+            logo: asset.logo_URIs?.png || asset.image_sync?.png || "",
+            chain: trace.counterparty_chain_name || "",
+          });
+        }
+      } catch {}
+      return map;
     },
-    refetchInterval: 30_000,
+    staleTime: 30 * 60_000,
   });
 
   // Fetch holders (top 50)
@@ -99,28 +137,67 @@ function TokenDetailPage() {
   });
 
   const token = useMemo(() => {
-    if (!metadataList) return null;
-    const m = metadataList.find((m: any) => m.denom === denom || m.base === denom);
-    if (!m) return null;
-
-    const displayName =
-      m.display || m.name || (m.symbol ? m.symbol.toUpperCase() : denom.slice(0, 10) + "...");
-    const decimals = m.denom_units?.find((u: any) => u.denom === m.display)?.exponent ?? 6;
-    const logo = m.uri?.includes("http") ? m.uri : null;
+    const meta = metadataList?.find((m: any) => m.denom === denom || m.base === denom);
     const isNative = denom === defaultNetwork.denom;
+    const isIBC = denom.startsWith("ibc/");
+    const isFactory = !isNative && !isIBC;
+
+    let displayName = "";
+    let symbol = "";
+    let logo = "";
+    let description = "";
+    let decimals = 6;
+
+    if (meta) {
+      displayName = meta.display || meta.name || "";
+      symbol = meta.symbol || "";
+      description = meta.description || "";
+      decimals = meta.denom_units?.find((u: any) => u.denom === meta.display)?.exponent ?? 6;
+      logo = meta.uri?.includes("http") ? meta.uri : null;
+    }
+
+    // IBC token: ambil dari Chain Registry
+    if (isIBC && ibcAssetMap?.has(denom)) {
+      const ibc = ibcAssetMap.get(denom)!;
+      displayName = displayName || ibc.name;
+      symbol = symbol || ibc.symbol;
+      logo = logo || ibc.logo;
+      if (ibc.chain && !description) description = `IBC token from ${ibc.chain}`;
+    }
+
+    // Native
+    if (isNative) {
+      displayName = displayName || defaultNetwork.coinDenom;
+      symbol = symbol || defaultNetwork.coinDenom;
+      decimals = defaultNetwork.tokenDecimals;
+      logo = logo || defaultNetwork.logo;
+    }
+
+    // Token Factory: ambil subdenom
+    if (isFactory && !displayName) {
+      const parts = denom.replace("factory/", "").split("/");
+      displayName = parts[parts.length - 1]?.toUpperCase() || denom.slice(0, 12) + "...";
+      symbol = symbol || displayName.slice(0, 6);
+    }
+
+    if (!displayName) {
+      displayName = denom.slice(0, 12) + "...";
+    }
 
     return {
       denom,
-      base: m.base || denom,
+      base: meta?.base || denom,
       displayName,
-      symbol: m.symbol || "",
-      description: m.description || "",
+      symbol,
+      description,
       decimals,
       logo,
       isNative,
+      isIBC,
+      isFactory,
       totalSupply: supply?.amount?.amount ?? "0",
     };
-  }, [metadataList, denom, supply]);
+  }, [metadataList, denom, supply, ibcAssetMap]);
 
   const totalHolders = holders?.length ?? 0;
   const userBalance = balance ?? "0";
@@ -129,10 +206,13 @@ function TokenDetailPage() {
 
   const handleSend = async () => {
     if (!address) return connect();
+    if (localStorage.getItem("jay-wallet-type") === "jay") {
+      toast.warning("Please switch to Keplr for transactions");
+      return;
+    }
     if (!receiver || receiver.length < 10) return toast.error("Invalid receiver address");
     if (!sendAmount || Number(sendAmount) <= 0) return toast.error("Enter amount");
 
-    // Convert to base unit
     const decimals = token?.decimals ?? 6;
     const [whole = "0", frac = ""] = sendAmount.split(".");
     const paddedFrac = (frac + "0".repeat(decimals)).slice(0, decimals);
@@ -152,6 +232,8 @@ function TokenDetailPage() {
       toast.error("Transfer failed", { description: e?.message });
     }
   };
+
+  const isLoading = supplyLoading || metadataLoading;
 
   if (isLoading) return <Skeleton className="h-64 w-full" />;
   if (!token)
@@ -181,14 +263,21 @@ function TokenDetailPage() {
               src={token.logo}
               alt={token.displayName}
               className="h-16 w-16 rounded-full ring-2 ring-primary/30 shrink-0"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none";
+              }}
             />
           ) : (
             <div
-              className={`h-16 w-16 rounded-full grid place-items-center shrink-0 ${
-                token.isNative ? "bg-primary/15 text-primary" : "bg-violet-500/15 text-violet-500"
-              } ring-2 ring-primary/30`}
+              className={`h-16 w-16 rounded-full grid place-items-center shrink-0 ring-2 ring-primary/30 ${
+                token.isNative
+                  ? "bg-primary/15 text-primary"
+                  : token.isIBC
+                    ? "bg-success/15 text-success"
+                    : "bg-violet-500/15 text-violet-500"
+              }`}
             >
-              <Coins className="h-8 w-8" />
+              {token.isIBC ? <Globe className="h-8 w-8" /> : <Coins className="h-8 w-8" />}
             </div>
           )}
           <div className="flex-1 min-w-0">
@@ -199,9 +288,17 @@ function TokenDetailPage() {
                   {token.symbol}
                 </Badge>
               )}
-              {token.isNative && (
+              {token.isNative ? (
                 <Badge variant="default" className="gap-1">
                   <Star className="h-3 w-3" /> Native
+                </Badge>
+              ) : token.isIBC ? (
+                <Badge variant="success" className="gap-1">
+                  <Globe className="h-3 w-3" /> IBC
+                </Badge>
+              ) : (
+                <Badge variant="muted" className="gap-1">
+                  <Coins className="h-3 w-3" /> Token Factory
                 </Badge>
               )}
             </div>
@@ -366,7 +463,10 @@ function TokenDetailPage() {
           <Row label="Denom" value={shorten(token.denom, 20, 10)} copyable />
           <Row label="Base Denom" value={shorten(token.base, 20, 10)} copyable />
           <Row label="Decimals" value={String(token.decimals)} />
-          <Row label="Type" value={token.isNative ? "Native" : "Token Factory"} />
+          <Row
+            label="Type"
+            value={token.isNative ? "Native" : token.isIBC ? "IBC" : "Token Factory"}
+          />
         </div>
       </Card>
 
