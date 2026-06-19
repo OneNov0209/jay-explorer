@@ -59,6 +59,7 @@ const NAV: Array<{
   { to: "/parameters", label: "Parameters", icon: SlidersHorizontal },
   { to: "/globe", label: "Network Globe", icon: Globe },
   { to: "/state-sync", label: "State Sync", icon: RefreshCw },
+  { to: "/tokens", label: "Tokens", icon: Coins },
 ];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
