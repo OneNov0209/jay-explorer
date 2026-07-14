@@ -31,7 +31,7 @@ declare global {
 }
 
 const KEPLR_LOGO = "https://raw.githubusercontent.com/OneNov0209/logo/refs/heads/main/keplr.jpg";
-const JAY_LOGO = "https://raw.githubusercontent.com/bbtccore/thejaynetwork/refs/heads/master/chain-registry/thejaynetwork/logo.png";
+const JAY_LOGO = "https://raw.githubusercontent.com/OneNov0209/logo/refs/heads/main/jay.png";
 
 export { KEPLR_LOGO, JAY_LOGO };
 
